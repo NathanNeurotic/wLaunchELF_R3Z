@@ -6,6 +6,9 @@
 #include "filer_actions.h"
 #include "filer_shared.h"
 #include "init.h"
+#ifdef MMCE
+#include "mmce_card.h"
+#endif
 
 static int isHddBrowserPath(const char *path)
 {
@@ -224,8 +227,14 @@ static int menu(const char *path, FILEINFO *file)
 	int menu_disabled = 0;
 	int write_disabled = 0;
 	int psu_action;
+#ifdef MMCE
+	int mmce_mc_slot;
+#endif
 
 	psu_action = classifyPsuAction(path);
+#ifdef MMCE
+	mmce_mc_slot = mmceCardGetMountSlot(path, file);
+#endif
 	if (psu_action == PSU_ACTION_EXTRACT)
 		psu_action_label = LNG(Extract_PSU);
 	else if (psu_action == PSU_ACTION_CREATE)
@@ -281,8 +290,14 @@ static int menu(const char *path, FILEINFO *file)
 		enable[COPY] = FALSE;
 		enable[MOUNTVMC0] = FALSE;
 		enable[MOUNTVMC1] = FALSE;
+		enable[MOUNTMMCEMC] = FALSE;
 		enable[GETSIZE] = FALSE;
 	}
+#ifdef MMCE
+	enable[MOUNTMMCEMC] = (mmce_mc_slot >= 0);
+#else
+	enable[MOUNTMMCEMC] = FALSE;
+#endif
 //#ifdef TMANIP
 	if (                                                        //if
 	    (file->stats.AttrFile & sceMcFileAttrSubdir) &&         //pointing to a folder
@@ -402,6 +417,14 @@ static int menu(const char *path, FILEINFO *file)
 					sprintf(tmp, "%s vmc0:", LNG(Mount));
 				else if (i == MOUNTVMC1)
 					sprintf(tmp, "%s vmc1:", LNG(Mount));
+				else if (i == MOUNTMMCEMC) {
+#ifdef MMCE
+					if (mmce_mc_slot >= 0)
+						sprintf(tmp, "%s mc%d:", LNG(Mount), mmce_mc_slot);
+					else
+#endif
+						sprintf(tmp, "%s mc?:", LNG(Mount));
+				}
 				else if (i == GETSIZE)
 					strcpy(tmp, LNG(Get_Size));
 				else if (i == OPEN_TEXTEDITOR)
@@ -1211,6 +1234,26 @@ int getFilePath(char *out, int cnfmode)
 							(void)ynDialog(msg1);
 						}
 					}  //ends MOUNTVMCx
+#ifdef MMCE
+					else if (ret == MOUNTMMCEMC) {
+						i = -1;
+						msg1[0] = '\0';
+						ret = mmceCardSwitchToFile(path, &files[browser_sel], &i, msg1, sizeof(msg1));
+						if (ret == 0 && i >= 0 && i <= 1) {
+							snprintf(path, sizeof(path), "mc%d:/", i);
+							snprintf(msg0, sizeof(msg0), "%s mc%d:", LNG(Mount), i);
+							browser_cd = TRUE;
+							vfreeSpace = FALSE;
+							cnfmode = NON_CNF;
+							strcpy(ext, cnfmode_extL[cnfmode]);
+						} else {
+							if (msg1[0] == '\0')
+								snprintf(msg1, sizeof(msg1), "\nMount mc?:\nResult=%d", ret);
+							(void)ynDialog(msg1);
+							browser_pushed = FALSE;
+						}
+					}  //ends MOUNTMMCEMC
+#endif
 					else if (ret == OPEN_TEXTEDITOR) {
 						snprintf(tmp1, sizeof(tmp1), "%s%s", path, files[browser_sel].name);
 						TextEditor(tmp1);
