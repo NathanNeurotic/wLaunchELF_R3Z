@@ -31,7 +31,8 @@ jobs:
             storage_profile: "all"
     runs-on: ubuntu-latest
     # Track the current PS2 homebrew toolchain so CI catches PS2SDK compatibility changes.
-    container: ghcr.io/ps2homebrew/ps2homebrew:main
+    # container: ghcr.io/ps2homebrew/ps2homebrew:main
+    container: ps2dev/ps2dev:latest
     steps:
 
     - name: Install dependencies
