@@ -94,6 +94,7 @@ static u8 have_basic_modules = 0;
 static u8 have_filexio_ready = 0;
 static u8 have_filexio_rwbuf_tuned = 0;
 static u8 have_mc_rpc_ready = 0;
+static unsigned int iop_reset_generation = 0;
 
 #define USB_MASS_BDMFS_SETTLE_MS 1000
 
@@ -159,6 +160,11 @@ static u8 done_setupPowerOff = 0;
 #define FILEXIO_RWBUF_NET_PRIMARY (128 * 1024)
 #define FILEXIO_RWBUF_NET_FALLBACK (64 * 1024)
 static u8 ps2kbd_opened = 0;
+
+unsigned int getIopResetGeneration(void)
+{
+	return iop_reset_generation;
+}
 
 /*
  * Tracks driver stacks proven loaded in the current IOP session.
@@ -238,7 +244,7 @@ void Reset(void);
 static void resetUsbMassScanState(void);
 static void resetUsbMassRuntimeState(void);
 static void resetDriverStackLoadTracking(void);
-static void resetRuntimeDeviceState(void);
+static void resetRuntimeDeviceState(int show_status);
 static void switchStorageDriverStack(int target_mode);
 static void switchBlockStorageStack(int target_mode);
 #if defined(ETH) && defined(UDPFS)
@@ -664,7 +670,7 @@ int load_udpfs(void)
 //---------------------------------------------------------------------------
 int reloadUdpfsModules(void)
 {
-	resetRuntimeDeviceState();
+	resetRuntimeDeviceState(TRUE);
 	load_udpfs_stack();
 	return have_udpfs_ioman;
 }
@@ -1328,12 +1334,13 @@ static void stopDs34Input(void)
 }
 #endif
 
-static void resetRuntimeDeviceState(void)
+static void resetRuntimeDeviceState(int show_status)
 {
 #ifdef DS34
 	stopDs34Input();
 #endif
-	showRebootingIopMsg();
+	if (show_status)
+		showRebootingIopMsg();
 	unmountAll();
 	Reset();
 #ifdef DS34
@@ -1346,7 +1353,12 @@ static void resetRuntimeDeviceState(void)
 
 void rebootIopAndReloadCoreStack(void)
 {
-	resetRuntimeDeviceState();
+	resetRuntimeDeviceState(TRUE);
+}
+
+void rebootIopAndReloadCoreStackSilent(void)
+{
+	resetRuntimeDeviceState(FALSE);
 }
 
 static void switchStorageDriverStack(int target_mode)
@@ -1357,7 +1369,7 @@ static void switchStorageDriverStack(int target_mode)
 
 	if (storage_driver_stack_mode != STORAGE_STACK_DEFAULT) {
 		DPRINTF("Switching storage driver stack (%d -> %d), resetting IOP\n", storage_driver_stack_mode, target_mode);
-		resetRuntimeDeviceState();
+		resetRuntimeDeviceState(TRUE);
 	}
 #else
 	(void)target_mode;
@@ -1381,7 +1393,7 @@ static void switchBlockStorageStack(int target_mode)
 
 	if (block_storage_stack_mode != BLOCK_STACK_NONE) {
 		DPRINTF("Switching block storage stack (%d -> %d), resetting IOP\n", block_storage_stack_mode, target_mode);
-		resetRuntimeDeviceState();
+		resetRuntimeDeviceState(TRUE);
 	}
 }
 
@@ -1393,7 +1405,7 @@ static void switchNetworkStack(int target_mode)
 
 	if (network_stack_mode != NETWORK_STACK_NONE) {
 		DPRINTF("Switching network stack (%d -> %d), resetting IOP\n", network_stack_mode, target_mode);
-		resetRuntimeDeviceState();
+		resetRuntimeDeviceState(TRUE);
 	}
 	network_stack_mode = target_mode;
 }
@@ -1424,7 +1436,7 @@ static void switchPsxHddDriverStack(int use_dvr_stack)
 		DPRINTF("Switching PSX HDD stack (dvr_hdd0:/ -> hdd0:/), resetting IOP\n");
 	}
 
-	resetRuntimeDeviceState();
+	resetRuntimeDeviceState(TRUE);
 }
 #endif
 
@@ -1865,6 +1877,7 @@ int i, d;
 	DPRINTF(" [UDPTTY]: id=%d, ret=%d\n", i, d);
 #endif
 	ensureCoreIoStackReady();
+	iop_reset_generation++;
 	DPRINTF("RESET FINISHED\n");
 	//	setupPad();
 }

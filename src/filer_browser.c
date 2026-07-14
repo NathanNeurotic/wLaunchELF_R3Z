@@ -5,7 +5,11 @@
 #include "gui_texteditor.h"
 #include "filer_actions.h"
 #include "filer_shared.h"
+#include "gui_hdd0_format.h"
 #include "init.h"
+
+#define SOURCE_DEVICE_WAIT_INTERVAL_MS 1000
+#define SOURCE_DEVICE_WAIT_TIMEOUT_MS 6000
 
 static int isHddBrowserPath(const char *path)
 {
@@ -91,6 +95,152 @@ static const char *getRootDeviceLabel(const char *name)
 		return "MISC/";
 
 	return NULL;
+}
+
+static void waitUntilTimer(u64 end_time)
+{
+	while (Timer() < end_time) {
+	}
+}
+
+static int probeDirectory(const char *path)
+{
+	char probe_path[MAX_PATH];
+	int fd;
+
+	if (path == NULL || path[0] == '\0')
+		return FALSE;
+
+	snprintf(probe_path, sizeof(probe_path), "%s", path);
+	fd = genDopen(probe_path);
+	if (fd < 0)
+		return FALSE;
+	genDclose(fd);
+	return TRUE;
+}
+
+static void markMx4sioDestinationAfterWrite(const char *path)
+{
+	if (path == NULL || strncmp(path, "mx4sio", 6))
+		return;
+
+	discardNextMx4sioRootListing(path);
+}
+
+static void makeDeviceRootPath(const char *path, char *root, int root_size)
+{
+	const char *separator;
+	int len;
+
+	if (root_size <= 0)
+		return;
+	root[0] = '\0';
+	if (path == NULL)
+		return;
+
+	separator = strchr(path, ':');
+	if (separator == NULL)
+		return;
+
+	len = (int)(separator - path) + 1;
+	if (len >= root_size)
+		len = root_size - 1;
+	memcpy(root, path, len);
+	root[len] = '\0';
+
+#if defined(ETH) || defined(UDPFS)
+	if (!strncmp(root, "host:", 5))
+		return;
+#endif
+
+	if (len + 1 < root_size) {
+		root[len++] = '/';
+		root[len] = '\0';
+	}
+}
+
+static int clipboardHddSourceReady(void)
+{
+	char party[MAX_NAME], dir[MAX_PATH];
+	int pfs_ix;
+
+	if (getHddParty(clipPath, NULL, party, dir) < 0)
+		return FALSE;
+	if (!ensurePathDeviceStackReady(clipPath))
+		return FALSE;
+	pfs_ix = mountParty(party);
+	return (pfs_ix >= 0);
+}
+
+#ifdef DVRP
+static int clipboardDvrHddSourceReady(void)
+{
+	char party[MAX_NAME], dir[MAX_PATH];
+	int pfs_ix;
+
+	if (getHddDVRPParty(clipPath, NULL, party, dir) < 0)
+		return FALSE;
+	if (!ensurePathDeviceStackReady(clipPath))
+		return FALSE;
+	pfs_ix = mountDVRPParty(party);
+	return (pfs_ix >= 0);
+}
+#endif
+
+static int clipboardSourceDeviceReady(void)
+{
+	char fixed_path[MAX_PATH], root_path[MAX_PATH];
+
+	if (clipPath[0] == '\0')
+		return FALSE;
+	if (!strncmp(clipPath, "mc", 2))
+		return TRUE;
+	if (!strncmp(clipPath, "vmc", 3)) {
+		int vmc_index = clipPath[3] - '0';
+
+		return (vmc_index >= 0 && vmc_index < 2 && vmcMounted[vmc_index]);
+	}
+	if (isHddBrowserPath(clipPath))
+		return clipboardHddSourceReady();
+#ifdef DVRP
+	if (!strncmp(clipPath, "dvr_hdd", 7))
+		return clipboardDvrHddSourceReady();
+#endif
+
+	if (!ensurePathDeviceStackReady(clipPath))
+		return FALSE;
+	if (genFixPath(clipPath, fixed_path) < 0)
+		return FALSE;
+	makeDeviceRootPath(fixed_path, root_path, sizeof(root_path));
+	if (probeDirectory(root_path))
+		return TRUE;
+	return probeDirectory(fixed_path);
+}
+
+static int waitForClipboardSourceDevice(void)
+{
+	u64 deadline, next_check;
+
+	if (clipIopResetGeneration == getIopResetGeneration())
+		return 0;
+
+	deadline = Timer() + SOURCE_DEVICE_WAIT_TIMEOUT_MS;
+	while (1) {
+		if (clipboardSourceDeviceReady()) {
+			clipIopResetGeneration = getIopResetGeneration();
+			return 0;
+		}
+		if (Timer() >= deadline)
+			break;
+
+		drawMsg(LNG(Pasting));
+		next_check = Timer() + SOURCE_DEVICE_WAIT_INTERVAL_MS;
+		if (next_check > deadline)
+			next_check = deadline;
+		waitUntilTimer(next_check);
+	}
+
+	return -1;
 }
 
 static void formatBrowserPathForDisplay(const char *path, char *display_path)
@@ -1028,6 +1178,7 @@ int getFilePath(char *out, int cnfmode)
 							clipFiles[0] = files[browser_sel];
 							nclipFiles = 1;
 						}
+						clipIopResetGeneration = getIopResetGeneration();
 						sprintf(msg0, "%s", LNG(Copied_to_the_Clipboard));
 						browser_pushed = FALSE;
 						if (ret == CUT)
@@ -1293,6 +1444,15 @@ int getFilePath(char *out, int cnfmode)
 			browser_cd = TRUE;
 			browser_repos = TRUE;
 		}  //ends 'if(browser_up)'
+		if (!browser_cd && path[0] == '\0' && !boot_show_all_devices && setting != NULL && setting->Hide_MCMMCE && pollRootMemoryCardDevices()) {
+			if (browser_nfiles > 0)
+				strcpy(cursorEntry, files[browser_sel].name);
+			else
+				cursorEntry[0] = '\0';
+			browser_cd = TRUE;
+			browser_repos = TRUE;
+			event |= 2;
+		}
 		//----- Process newly entered directory here (incl initial entry)
 		if (browser_cd) {
 			if (isGenericUsbRootPath(path)) {
@@ -1301,6 +1461,16 @@ int getFilePath(char *out, int cnfmode)
 					snprintf(path, sizeof(path), "usb%d:/", usb_unit);
 			}
 			browser_nfiles = setFileList(path, ext, files, cnfmode);
+#ifdef UDPFS
+			if (udpfs_dir_open_failed) {
+				udpfs_dir_open_failed = 0;
+				strcpy(msg0, LNG(UDPFS_Server_not_found));
+				browser_pushed = FALSE;
+				rebootIopAndReloadCoreStackSilent();
+				path[0] = '\0';
+				browser_nfiles = setFileList(path, ext, files, cnfmode);
+			}
+#endif
 			if (!cnfmode) {  //Calculate free space (unless configuring)
 				if (!strncmp(path, "mc", 2)) {
 					mcGetInfo(path[2] - '0', 0, &mctype_PSx, &mcfreeSpace, NULL);
@@ -1772,6 +1942,11 @@ static void subfunc_Paste(char *mess, char *path)
 		goto finished;
 	}
 	drawMsg(LNG(Pasting));
+	if (waitForClipboardSourceDevice() < 0) {
+		printf("[PASTE] source device unavailable after IOP reset src='%s' dst='%s'\n", clipPath, path);
+		ret = -1;
+		goto finished;
+	}
 	if (trace_vmc_paste)
 		printf("[PASTE] start src='%s' dst='%s' items=%d mode=%d cut=%d\n",
 		       clipPath, path, nclipFiles, PasteMode, browser_cut);
@@ -1812,8 +1987,11 @@ finished:
 		       ret, clipPath, path, PasteMode, browser_cut);
 		strcpy(mess, LNG(Paste_Failed));
 		browser_pushed = FALSE;
-	} else if (browser_cut)
-		nclipFiles = 0;
+	} else {
+		if (browser_cut)
+			nclipFiles = 0;
+		markMx4sioDestinationAfterWrite(path);
+	}
 	browser_cd = TRUE;
 }
 //------------------------------

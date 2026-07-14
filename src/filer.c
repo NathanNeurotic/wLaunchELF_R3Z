@@ -16,6 +16,9 @@ static int getHideHddMode(void)
 {
 	int mode = (setting != NULL) ? setting->Hide_Hdd : HIDE_HDD_HDD1_ATA1;
 
+	if (boot_show_all_devices)
+		return HIDE_HDD_SHOW_ALL;
+
 	return (mode >= 0 && mode < HIDE_HDD_COUNT) ? mode : HIDE_HDD_HDD1_ATA1;
 }
 
@@ -60,6 +63,7 @@ int mctype_PSx;  //dlanor: Needed for proper scaling of mcfreespace
 int vfreeSpace;  //flags validity of freespace value
 int browser_cut;
 int nclipFiles, nmarks, nparties;
+unsigned int clipIopResetGeneration;
 #ifdef DVRP
 int ndvrpparties;
 char mountedDVRPParty[MOUNT_LIMIT][MAX_NAME];
@@ -122,6 +126,9 @@ int host_error = 0;
 int host_elflist = 0;
 int host_use_Bsl = 1;  //By default assume that host paths use backslash
 #endif
+#ifdef UDPFS
+int udpfs_dir_open_failed = 0;
+#endif
 u64 written_size;            //Used for pasting progress report
 u64 PasteTime;               //Used for pasting progress report
 
@@ -139,6 +146,16 @@ int readGENERIC(const char *path, FILEINFO *info, int max);
 #define USB_BROWSER_MAX_DRIVES 2
 #define USB_DISCOVERY_ATTEMPTS 3
 #define USB_DISCOVERY_SETTLE_MS 500
+#define ROOT_MC_POLL_INTERVAL_MS 500
+
+static int root_mc_present[2] = {1, 1};
+static int root_mc_poll_active = 0;
+static int root_mc_poll_port = 0;
+static int root_mc_poll_type = 0;
+static int root_mc_poll_free = 0;
+static int root_mc_poll_format = 0;
+static u64 root_mc_next_poll_time = 0;
+static int discard_next_mx4sio_root_listing = 0;
 
 static int mapUsbPathToFatFsPath(const char *usb_path, char *fatfs_path)
 {
@@ -1018,6 +1035,69 @@ static int addRootUsbDeviceEntries(FILEINFO *files, int nfiles)
 	return nfiles;
 }
 
+static int isMx4sioRootPath(const char *path)
+{
+	if (path == NULL)
+		return FALSE;
+
+	return (!strcmp(path, "mx4sio:") || !strcmp(path, "mx4sio:/") ||
+	        !strcmp(path, "mx4sio0:") || !strcmp(path, "mx4sio0:/"));
+}
+
+void discardNextMx4sioRootListing(const char *path)
+{
+	if (isMx4sioRootPath(path))
+		discard_next_mx4sio_root_listing = 1;
+}
+
+static int memoryCardResultIndicatesPresent(int ret)
+{
+	return (ret == -1 || ret == 0);
+}
+
+static int rootMemoryCardExists(int port)
+{
+	if (port < 0 || port > 1)
+		return FALSE;
+
+	if (boot_show_all_devices || setting == NULL || !setting->Hide_MCMMCE)
+		return TRUE;
+
+	return root_mc_present[port];
+}
+
+int pollRootMemoryCardDevices(void)
+{
+	int result, sync, changed, start_ret;
+
+	if (root_mc_poll_active) {
+		sync = mcSync(1, NULL, &result);
+		if (sync == 0)
+			return FALSE;
+
+		root_mc_poll_active = 0;
+		root_mc_next_poll_time = Timer() + ROOT_MC_POLL_INTERVAL_MS;
+		if (sync < 0)
+			return FALSE;
+
+		changed = (root_mc_present[root_mc_poll_port] != memoryCardResultIndicatesPresent(result));
+		root_mc_present[root_mc_poll_port] = memoryCardResultIndicatesPresent(result);
+		root_mc_poll_port = (root_mc_poll_port + 1) & 1;
+		return changed;
+	}
+
+	if (Timer() < root_mc_next_poll_time)
+		return FALSE;
+
+	start_ret = mcGetInfo(root_mc_poll_port, 0, &root_mc_poll_type, &root_mc_poll_free, &root_mc_poll_format);
+	if (start_ret == 0)
+		root_mc_poll_active = 1;
+	else
+		root_mc_next_poll_time = Timer() + ROOT_MC_POLL_INTERVAL_MS;
+
+	return FALSE;
+}
+
 //------------------------------
 //endfunc addRootUsbDeviceEntries
 //--------------------------------------------------------------
@@ -1062,6 +1142,20 @@ exit:
 //------------------------------
 //endfunc readGENERIC
 //--------------------------------------------------------------
+#ifdef MX4SIO
+static void drainGENERIC(const char *path)
+{
+	iox_dirent_t record;
+	int dd;
+
+	if ((dd = fileXioDopen(path)) < 0)
+		return;
+	while (fileXioDread(dd, &record) > 0) {
+	}
+	fileXioDclose(dd);
+}
+#endif
+
 #if defined(ETH) || defined(UDPFS)
 char *makeHostPath(char *dp, char *sp)
 {
@@ -1245,9 +1339,16 @@ int readUDPFS(const char *path, FILEINFO *info, int max)
 	iox_dirent_t dirent;
 	int fd, count = 0;
 
+	udpfs_dir_open_failed = 0;
 	initUDPFS();
-	if ((fd = fileXioDopen(path)) < 0)
+	if (host_error) {
+		udpfs_dir_open_failed = 1;
 		return 0;
+	}
+	if ((fd = fileXioDopen(path)) < 0) {
+		udpfs_dir_open_failed = 1;
+		return 0;
+	}
 
 	while (fileXioDread(fd, &dirent) > 0) {
 		if (strcmp(dirent.name, ".") && strcmp(dirent.name, "..")) {
@@ -1423,7 +1524,7 @@ int getDir(const char *path, FILEINFO *info)
 			if (!loadMx4sioModules())
 				return 0;
 
-		is_root = (!strcmp(path, "mx4sio:/") || !strcmp(path, "mx4sio:"));
+		is_root = isMx4sioRootPath(path);
 		wait_budget_ms = is_root ? 2000 : 750;
 
 		indexed_path[0] = '\0';
@@ -1436,6 +1537,11 @@ int getDir(const char *path, FILEINFO *info)
 			else
 				strcpy(path_alt, "mx4sio:");
 			has_path_alt = 1;
+		}
+
+		if (is_root && discard_next_mx4sio_root_listing) {
+			discard_next_mx4sio_root_listing = 0;
+			drainGENERIC(path);
 		}
 
 		n = readGENERIC(path, info, max);
@@ -1540,20 +1646,28 @@ int setFileList(const char *path, const char *ext, FILEINFO *files, int cnfmode)
 			scan_USB_mass();   //then allow another scan here (timer dependent)
 		allow_usb_devices = ((cnfmode != USBD_IRX_CNF) && (cnfmode != USBKBD_IRX_CNF) && (cnfmode != USBMASS_IRX_CNF));
 
-		strcpy(files[nfiles].name, "mc0:");
-		files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
-		strcpy(files[nfiles].name, "mc1:");
-		files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+		if (rootMemoryCardExists(0)) {
+			strcpy(files[nfiles].name, "mc0:");
+			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+		}
+		if (rootMemoryCardExists(1)) {
+			strcpy(files[nfiles].name, "mc1:");
+			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+		}
 
 		if (allow_usb_devices) {
 			nfiles = addRootUsbDeviceEntries(files, nfiles);
 		}
 
 #ifdef MMCE
-		strcpy(files[nfiles].name, "mmce0:");
-		files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
-		strcpy(files[nfiles].name, "mmce1:");
-		files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+		if (rootMemoryCardExists(0)) {
+			strcpy(files[nfiles].name, "mmce0:");
+			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+		}
+		if (rootMemoryCardExists(1)) {
+			strcpy(files[nfiles].name, "mmce1:");
+			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+		}
 #endif
 
 #ifdef MX4SIO
@@ -1587,14 +1701,14 @@ int setFileList(const char *path, const char *ext, FILEINFO *files, int cnfmode)
 			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
 
 #ifdef XFROM
-			if (console_is_PSX) {
+			if (console_is_PSX || boot_show_all_devices) {
 				strcpy(files[nfiles].name, "xfrom0:");
 				files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
 			}
 #endif
 
 #ifdef DVRP
-			if (console_is_PSX) {
+			if (console_is_PSX || boot_show_all_devices) {
 				strcpy(files[nfiles].name, "dvr_hdd0:");
 				files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
 			}
