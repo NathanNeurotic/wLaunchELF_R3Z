@@ -1606,10 +1606,6 @@ int setFileList(const char *path, const char *ext, FILEINFO *files, int cnfmode)
 				strcpy(files[nfiles].name, "host:");
 				files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
 #endif
-#ifdef UDPFS
-				strcpy(files[nfiles].name, "udpfs:");
-				files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
-#endif
 				if (vmcMounted[0]) {
 					strcpy(files[nfiles].name, "vmc0:");
 					files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
@@ -1619,6 +1615,10 @@ int setFileList(const char *path, const char *ext, FILEINFO *files, int cnfmode)
 					files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
 				}
 			}
+#ifdef UDPFS
+			strcpy(files[nfiles].name, "udpfs:");
+			files[nfiles++].stats.AttrFile = sceMcFileAttrSubdir;
+#endif
 			if (cnfmode < 2) {
 				//This condition blocks use of MISC pseudo-device for driver path picks.
 				//And allows this device only for launch keys and for normal browsing.
