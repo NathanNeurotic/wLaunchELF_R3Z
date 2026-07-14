@@ -1414,29 +1414,20 @@ static void switchNetworkStack(int target_mode)
 #ifdef DVRP
 static void switchPsxHddDriverStack(int use_dvr_stack)
 {
-	int block_stack_active;
-
 	if (!console_is_PSX)
 		return;
-
-	block_stack_active = (block_storage_stack_mode != BLOCK_STACK_NONE || have_ps2hdd || have_ps2fs);
-#ifdef EXFAT
-	block_stack_active = (block_stack_active || have_ata_bd);
-#endif
 
 	if (use_dvr_stack) {
 		if (have_DVRP_HDD_modules)
 			return;
-		if (!have_HDD_modules && !block_stack_active && !have_ps2atad && !have_dvrdrv && !have_dvrfile)
-			return;
-		DPRINTF("Switching PSX HDD stack (hdd0:/ -> dvr_hdd0:/), resetting IOP\n");
+		DPRINTF("Loading PSX DVR HDD stack without resetting IOP\n");
 	} else {
+		if (have_HDD_modules)
+			return;
 		if (!have_DVRP_HDD_modules && !have_ps2atad && !have_dvrdrv && !have_dvrfile)
 			return;
-		DPRINTF("Switching PSX HDD stack (dvr_hdd0:/ -> hdd0:/), resetting IOP\n");
+		DPRINTF("Loading PSX APA HDD stack without resetting IOP\n");
 	}
-
-	resetRuntimeDeviceState(TRUE);
 }
 #endif
 
