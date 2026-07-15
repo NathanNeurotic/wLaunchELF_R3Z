@@ -62,10 +62,10 @@ int mcfreeSpace;
 int mctype_PSx;  //dlanor: Needed for proper scaling of mcfreespace
 int vfreeSpace;  //flags validity of freespace value
 int browser_cut;
-int nclipFiles, nmarks, nparties;
+int nclipFiles, nmarks;
 unsigned int clipIopResetGeneration;
 #ifdef DVRP
-int ndvrpparties;
+static int ndvrpparties;
 char mountedDVRPParty[MOUNT_LIMIT][MAX_NAME];
 int latestDVRPMount = -1;
 #endif
@@ -74,8 +74,11 @@ int file_show = 1;  //dlanor: 0==name_only, 1==name+size+time, 2==title+size+tim
 int file_sort = 1;  //dlanor: 0==none, 1==name, 2==title, 3==mtime
 int size_valid = 0;
 int time_valid = 0;
-char parties[MAX_PARTITIONS][MAX_PART_NAME+1];
-static char hddPartyListDevice[6];
+static char hddParties[2][MAX_PARTITIONS][MAX_PART_NAME + 1];
+static int hddNparties[2] = {0, 0};
+#ifdef DVRP
+static char dvrParties[MAX_PARTITIONS][MAX_PART_NAME + 1];
+#endif
 char clipPath[MAX_PATH], LastDir[MAX_NAME], marks[MAX_ENTRY];
 FILEINFO clipFiles[MAX_ENTRY];
 int fileMode = FIO_S_IRUSR | FIO_S_IWUSR | FIO_S_IXUSR | FIO_S_IRGRP | FIO_S_IWGRP | FIO_S_IXGRP | FIO_S_IROTH | FIO_S_IWOTH | FIO_S_IXOTH;
@@ -463,20 +466,29 @@ static const char *canonicalizeAtaPath(const char *path, char *buffer)
 	return path;
 }
 
+static int getHddUnitFromDevice(const char *device)
+{
+	if (device == NULL || strncmp(device, "hdd", 3) || device[3] < '0' || device[3] > '1' || device[4] != ':')
+		return -1;
+
+	return device[3] - '0';
+}
+
 static void setPartyListForDevice(const char *device)
 {
 	iox_dirent_t dirEnt;
-	int hddFd;
+	int hddFd, unit;
 
-	nparties = 0;
+	unit = getHddUnitFromDevice(device);
+	if (unit < 0)
+		return;
 
-	hddPartyListDevice[0] = '\0';
+	hddNparties[unit] = 0;
 
 	if ((hddFd = fileXioDopen(device)) < 0)
 		return;
-	snprintf(hddPartyListDevice, sizeof(hddPartyListDevice), "%s", device);
 	while (fileXioDread(hddFd, &dirEnt) > 0) {
-		if (nparties >= MAX_PARTITIONS)
+		if (hddNparties[unit] >= MAX_PARTITIONS)
 			break;
 		if ((dirEnt.stat.attr != ATTR_MAIN_PARTITION) || (dirEnt.stat.mode != FS_TYPE_PFS))
 			continue;
@@ -503,9 +515,9 @@ static void setPartyListForDevice(const char *device)
 			while ((len < MAX_PART_NAME) && (dirEnt.name[len] != '\0')) {
 				len++;
 			}
-			memcpy(parties[nparties], dirEnt.name, len);
-			parties[nparties][len] = '\0';
-			nparties++;
+			memcpy(hddParties[unit][hddNparties[unit]], dirEnt.name, len);
+			hddParties[unit][hddNparties[unit]][len] = '\0';
+			hddNparties[unit]++;
 		}
 	}
 	fileXioDclose(hddFd);
@@ -552,8 +564,8 @@ void setDVRPPartyList(void)
 			while ((len < MAX_PART_NAME) && (dirEnt.name[len] != '\0')) {
 				len++;
 			}
-			memcpy(parties[ndvrpparties], dirEnt.name, len);
-			parties[ndvrpparties][len] = '\0';
+			memcpy(dvrParties[ndvrpparties], dirEnt.name, len);
+			dvrParties[ndvrpparties][len] = '\0';
 			ndvrpparties++;
 		}
 	}
@@ -561,6 +573,15 @@ void setDVRPPartyList(void)
 }
 //--------------------------------------------------------------
 #endif
+
+void invalidatePartitionCaches(void)
+{
+	hddNparties[0] = 0;
+	hddNparties[1] = 0;
+#ifdef DVRP
+	ndvrpparties = 0;
+#endif
+}
 
 //--------------------------------------------------------------
 // The following group of file handling functions are used to allow
@@ -583,7 +604,7 @@ int genFixPath(const char *inp_path, char *gen_path)
 	char uLE_path[MAX_PATH], loc_path[MAX_PATH], ata_path[MAX_PATH], hdd_device[6], party[MAX_NAME], *p;
 	const char *canonical_path;
 	char *pathSep;
-	int part_ix;
+	int part_ix, hdd_unit;
 
 	part_ix = 99;  //Assume valid non-HDD path
 	if (!uLE_related(uLE_path, inp_path))
@@ -655,6 +676,12 @@ int genFixPath(const char *inp_path, char *gen_path)
 		loadMmceModules();
 #endif
 	} else if (getHddDeviceFromPath(uLE_path, hdd_device) >= 0 && uLE_path[5] == '/') {  //If using HDD path
+		hdd_unit = getHddUnitFromDevice(hdd_device);
+		if (hdd_unit < 0) {
+			part_ix = -1;
+			genLimObjName(gen_path, 0);
+			return part_ix;
+		}
 		//Get path on HDD unit, LaunchELF's format (e.g. hdd0:/partition/path/to/file)
 		strcpy(loc_path, uLE_path + 6);
 		if ((p = strchr(loc_path, '/')) != NULL) {
@@ -668,12 +695,9 @@ int genFixPath(const char *inp_path, char *gen_path)
 		}
 		//Generate standard path to the block device (i.e. hddN:/partition results in hddN:partition)
 		sprintf(party, "%s%s", hdd_device, loc_path);
-		if (nparties == 0) {
+		if (hddNparties[hdd_unit] == 0) {
 			//No partitions recognized? Load modules & populate partition list.
 			loadHddModules();
-			setPartyListForDevice(hdd_device);
-		} else if (strcmp(hddPartyListDevice, hdd_device)) {
-			//The HDD stack is already loaded; refresh only the selected unit's partition list.
 			setPartyListForDevice(hdd_device);
 		}
 		//Mount the partition.
@@ -778,25 +802,27 @@ int readHDD(const char *path, FILEINFO *info, int max)
 {
 	iox_dirent_t dirbuf;
 	char hdd_device[6], party[MAX_PATH], dir[MAX_PATH];
-	int i = 0, fd, ret;
+	int i = 0, fd, ret, hdd_unit;
 
 	if (getHddDeviceFromPath(path, hdd_device) < 0)
 		return 0;
 
-	if (nparties == 0) {
+	hdd_unit = getHddUnitFromDevice(hdd_device);
+	if (hdd_unit < 0)
+		return 0;
+
+	if (hddNparties[hdd_unit] == 0) {
 		loadHddModules();
-		setPartyListForDevice(hdd_device);
-	} else if (strcmp(hddPartyListDevice, hdd_device)) {
 		setPartyListForDevice(hdd_device);
 	}
 
 	if (isHddRootPath(path)) {
 		unmountHddPartiesNotNeededByClipboard();
-		for (i = 0; i < nparties; i++) {
-			strcpy(info[i].name, parties[i]);
+		for (i = 0; i < hddNparties[hdd_unit]; i++) {
+			strcpy(info[i].name, hddParties[hdd_unit][i]);
 			info[i].stats.AttrFile = MC_ATTR_norm_folder;
 		}
-		return nparties;
+		return hddNparties[hdd_unit];
 	}
 
 	getHddParty(path, NULL, party, dir);
@@ -858,7 +884,7 @@ int readHDDDVRP(const char *path, FILEINFO *info, int max)
 
 	if (!strcmp(path, "dvr_hdd0:/")) {
 		for (i = 0; i < ndvrpparties; i++) {
-			strcpy(info[i].name, parties[i]);
+			strcpy(info[i].name, dvrParties[i]);
 			info[i].stats.AttrFile = MC_ATTR_norm_folder;
 		}
 		return ndvrpparties;

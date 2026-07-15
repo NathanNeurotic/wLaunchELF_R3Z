@@ -817,14 +817,14 @@ void hddManager(void)
 						if ((ret = sizeSelector(partySize)) > 0) {
 							if (ynDialog(LNG(Create_New_Partition)) == 1) {
 								CreateParty(tmp, ret);
-								nparties = 0;  //Tell FileBrowser to refresh party list
+								invalidatePartitionCaches();  //Tell FileBrowser to refresh partition lists
 							}
 						}
 					}
 				} else if (ret == REMOVE) {
 					if (ynDialog(LNG(Remove_Current_Partition)) == 1) {
 						RemoveParty(PartyInfo[browser_sel]);
-						nparties = 0;  //Tell FileBrowser to refresh party list
+						invalidatePartitionCaches();  //Tell FileBrowser to refresh partition lists
 					}
 				} else if (ret == RENAME) {
 					drawMsg(LNG(Enter_New_Partition_Name));
@@ -840,7 +840,7 @@ void hddManager(void)
 						if (keyboard(tmp, MAX_PART_NAME) > 0) {
 							if (ynDialog(LNG(Rename_Current_Partition)) == 1) {
 								RenameParty(PartyInfo[browser_sel], tmp);
-								nparties = 0;  //Tell FileBrowser to refresh party list
+								invalidatePartitionCaches();  //Tell FileBrowser to refresh partition lists
 							}
 						}
 					}  //ends clause for normal partition RENAME
@@ -852,13 +852,13 @@ void hddManager(void)
 						if (ynDialog(LNG(Expand_Current_Partition)) == 1) {
 							ret -= partySize;
 							ExpandParty(PartyInfo[browser_sel], ret);
-							nparties = 0;  //Tell FileBrowser to refresh party list
+							invalidatePartitionCaches();  //Tell FileBrowser to refresh partition lists
 						}
 					}
 				} else if (ret == FORMAT) {
 					if (ynDialog(LNG(Format_HDD)) == 1) {
 						FormatHdd();
-						nparties = 0;  //Tell FileBrowser to refresh party list
+						invalidatePartitionCaches();  //Tell FileBrowser to refresh partition lists
 					}
 				}
 			}  //Ends clause for R1 menu
