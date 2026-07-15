@@ -188,6 +188,82 @@ static const char *copyNeutrinoArgPath(const char *path, char *buffer, size_t bu
 	return buffer;
 }
 
+static const char *normalizeNeutrinoMediaPath(const char *path, char *buffer, size_t buffer_size)
+{
+	const char *suffix;
+	const char *prefix;
+	int unit;
+
+	if (path == NULL || path[0] == '\0' || buffer == NULL || buffer_size == 0)
+		return path;
+
+	unit = 0;
+	if (parseDeviceUnitPath(path, "usb", 3, &unit, &suffix) ||
+	    parseDeviceUnitPath(path, "mass", 4, &unit, &suffix)) {
+		prefix = "usb";
+	} else if (parseDeviceUnitPath(path, "ata", 3, &unit, &suffix)) {
+		prefix = "ata";
+	} else if (parseDeviceUnitPath(path, "mx4sio", 6, &unit, &suffix)) {
+		prefix = "mx4sio";
+	} else if (parseDeviceUnitPath(path, "udpbd", 5, &unit, &suffix)) {
+		prefix = "udpbd";
+	} else if (parseDeviceUnitPath(path, "udpfs", 5, &unit, &suffix)) {
+		prefix = "udpfs";
+	} else if (parseDeviceUnitPath(path, "mmce", 4, &unit, &suffix)) {
+		prefix = "mmce";
+	} else {
+		return normalizeNeutrinoArgPath(path, buffer, buffer_size);
+	}
+
+	if (*suffix == '\0')
+		suffix = "/";
+
+	snprintf(buffer, buffer_size, "%s:%s", prefix, suffix);
+	return buffer;
+}
+
+static const char *copyNeutrinoMediaPath(const char *path, char *buffer, size_t buffer_size)
+{
+	const char *normalized_path;
+
+	if (buffer == NULL || buffer_size == 0)
+		return path;
+
+	normalized_path = normalizeNeutrinoMediaPath(path, buffer, buffer_size);
+	if (normalized_path != buffer)
+		snprintf(buffer, buffer_size, "%s", (normalized_path != NULL) ? normalized_path : "");
+
+	return buffer;
+}
+
+static int copyPathDirectory(const char *path, char *buffer, size_t buffer_size)
+{
+	char *colon;
+	char *slash;
+
+	if (path == NULL || path[0] == '\0' || buffer == NULL || buffer_size == 0)
+		return 0;
+
+	if (path != buffer)
+		snprintf(buffer, buffer_size, "%s", path);
+	colon = strchr(buffer, ':');
+	slash = strrchr(buffer, '/');
+	if (slash != NULL && (colon == NULL || slash > colon)) {
+		if (colon != NULL && slash == colon + 1)
+			slash[1] = '\0';
+		else
+			*slash = '\0';
+		return 1;
+	}
+
+	if (colon != NULL) {
+		colon[1] = '\0';
+		return 1;
+	}
+
+	return 0;
+}
+
 static int checkExecutablePath(const char *path, int *exec_kind)
 {
 	char tmp[MAX_PATH];
@@ -409,8 +485,10 @@ static int LaunchNeutrinoIso(const char *iso_path, char *message, size_t message
 	static char neutrino_party[MAX_PATH];
 	static char neutrino_arg0[MAX_PATH];
 	static char iso_arg[MAX_PATH];
+	static char cwd_path[MAX_PATH];
+	static char cwd_arg[MAX_PATH + 6];
 	static char dvd_arg[MAX_PATH + 6];
-	char *args[2];
+	char *args[3];
 	int exec_kind;
 
 	if (!isIsoLaunchPath(iso_path))
@@ -428,7 +506,13 @@ static int LaunchNeutrinoIso(const char *iso_path, char *message, size_t message
 	}
 
 	copyNeutrinoArgPath(setting->neutrino_file, neutrino_arg0, sizeof(neutrino_arg0));
-	copyNeutrinoArgPath(iso_path, iso_arg, sizeof(iso_arg));
+	copyNeutrinoMediaPath(iso_path, iso_arg, sizeof(iso_arg));
+	copyNeutrinoArgPath(neutrino_fullpath, cwd_path, sizeof(cwd_path));
+	if (!copyPathDirectory(cwd_path, cwd_path, sizeof(cwd_path)) ||
+	    snprintf(cwd_arg, sizeof(cwd_arg), "-cwd=%s", cwd_path) >= (int)sizeof(cwd_arg)) {
+		snprintf(message, message_size, "%s.", LNG(Failed));
+		return 1;
+	}
 	if (snprintf(dvd_arg, sizeof(dvd_arg), "-dvd=%s", iso_arg) >= (int)sizeof(dvd_arg)) {
 		snprintf(message, message_size, "%s.", LNG(Failed));
 		return 1;
@@ -436,9 +520,10 @@ static int LaunchNeutrinoIso(const char *iso_path, char *message, size_t message
 
 	args[0] = neutrino_arg0;
 	args[1] = dvd_arg;
+	args[2] = cwd_arg;
 
 	CleanUpForExec();
-	RunLoaderElfWithArgs(neutrino_fullpath, neutrino_party, 2, args, 1);
+	RunLoaderElfWithArgs(neutrino_fullpath, neutrino_party, 3, args, 0);
 	return 1;
 }
 
