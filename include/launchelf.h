@@ -285,6 +285,7 @@ typedef struct
 	char lang_file[MAX_PATH];
 	char font_file[MAX_PATH];
 	char popstarter_file[MAX_PATH];
+	char neutrino_file[MAX_PATH];
 	int Menu_Frame;
 	int timeout;
 	int Hide_Paths;
@@ -390,6 +391,7 @@ int loadAtaModules(void);
 /* elf.c */
 int checkELFheader(char *filename);
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load);
+void RunLoaderElfWithArgs(char *filename, char *party, int app_argc, char *app_argv[], int reboot_iop_elf_load);
 void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop);
 #ifdef XFROM
 int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size);
