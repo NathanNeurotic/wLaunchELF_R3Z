@@ -1709,19 +1709,9 @@ int getFilePath(char *out, int cnfmode)
 			}  //ends clause for clipboard indicator
 				if (browser_pushed) {
 					char display_path[MAX_PATH];
-					int msg0_prefix;
-					int msg0_path_len;
 
 					formatBrowserPathForDisplay(path, display_path);
-					msg0_prefix = snprintf(msg0, sizeof(msg0), "%s: ", LNG(Path));
-					if (msg0_prefix < 0 || msg0_prefix >= (int)sizeof(msg0))
-						msg0[sizeof(msg0) - 1] = '\0';
-					else {
-						msg0_path_len = (int)sizeof(msg0) - msg0_prefix - 1;
-						if (msg0_path_len < 0)
-							msg0_path_len = 0;
-						snprintf(msg0 + msg0_prefix, sizeof(msg0) - msg0_prefix, "%.*s", msg0_path_len, display_path);
-					}
+					snprintf(msg0, sizeof(msg0), "%s", display_path);
 				}
 
 			//Tooltip section

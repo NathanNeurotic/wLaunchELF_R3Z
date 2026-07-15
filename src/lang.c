@@ -51,6 +51,12 @@ static Language Lang_French[] = {
 #undef lang
     {NULL}};
 
+static Language Lang_Hungarian[] = {
+#define lang(id, name, value) {value},
+#include "../Lang/HUN.LNG"
+#undef lang
+    {NULL}};
+
 Language Lang_String[sizeof(Lang_Default) / sizeof(Lang_Default[0])];
 Language Lang_Extern[sizeof(Lang_Default) / sizeof(Lang_Default[0])];
 
@@ -65,6 +71,7 @@ static const char *builtin_language_config_names[BUILTIN_LANGUAGE_COUNT] = {
     "portuguese",
     "brazilian",
     "german",
+    "hungarian",
 };
 
 static const char *builtin_language_native_names[BUILTIN_LANGUAGE_COUNT] = {
@@ -76,6 +83,7 @@ static const char *builtin_language_native_names[BUILTIN_LANGUAGE_COUNT] = {
     "Portugues",
     "Portugues Brasileiro",
     "Deutsch",
+    "Magyar",
 };
 
 int normalizeBuiltinLanguage(int language)
@@ -104,6 +112,8 @@ static Language *getBuiltinLanguageTable(int language)
 			return Lang_Brazilian;
 		case BUILTIN_LANGUAGE_GERMAN:
 			return Lang_German;
+		case BUILTIN_LANGUAGE_HUNGARIAN:
+			return Lang_Hungarian;
 		case BUILTIN_LANGUAGE_ENGLISH:
 		default:
 			return Lang_Default;
@@ -144,6 +154,8 @@ int getBuiltinLanguageByConfigName(const char *name)
 		return BUILTIN_LANGUAGE_BRAZILIAN;
 	if (!stricmp(name, "7") || !stricmp(name, "german") || !stricmp(name, "ger") || !stricmp(name, "deu") || !stricmp(name, "de") || !stricmp(name, "deutsch"))
 		return BUILTIN_LANGUAGE_GERMAN;
+	if (!stricmp(name, "8") || !stricmp(name, "hungarian") || !stricmp(name, "hun") || !stricmp(name, "hu") || !stricmp(name, "magyar"))
+		return BUILTIN_LANGUAGE_HUNGARIAN;
 	return -1;
 }
 
