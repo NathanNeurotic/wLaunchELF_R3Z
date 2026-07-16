@@ -503,7 +503,6 @@ extern int latestDVRPMount;
 extern int vmcMounted[2];
 extern int vmc_PartyIndex[2];            //PFS index for each VMC, unless -1
 extern int Party_vmcIndex[MOUNT_LIMIT];  //VMC index for each PFS, unless -1
-extern int nparties;                     //Clearing this causes FileBrowser to refresh party list
 extern unsigned char *elisaFnt;
 char *PathPad_menu(const char *path);
 int getFilePath(char *out, const int cnfmode);
@@ -568,6 +567,7 @@ enum BuiltinLanguage {
 	BUILTIN_LANGUAGE_PORTUGUESE,
 	BUILTIN_LANGUAGE_BRAZILIAN,
 	BUILTIN_LANGUAGE_GERMAN,
+	BUILTIN_LANGUAGE_HUNGARIAN,
 	BUILTIN_LANGUAGE_COUNT
 };
 

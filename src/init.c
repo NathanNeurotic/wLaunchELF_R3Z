@@ -439,10 +439,10 @@ static int load_ps2hdd_stack(int with_ata_bd)
 	                       "-n"
 	                       "\0"
 	                       "20";
-	/* Limit simultaneously mounted PFS partitions for ATA+APA compatibility. */
+	/* Allow up to four simultaneously mounted PFS partitions. */
 	static char pfsarg[] = "-m"
 	                       "\0"
-	                       "2"
+	                       "4"
 	                       "\0"
 	                       "-o"
 	                       "\0"
@@ -683,11 +683,11 @@ static void load_ps2dvr(void)
 {
 	int ret, ID __attribute__((unused));
 
-	if (!have_dvrdrv || !have_dvrfile || !have_ps2atad || !have_ps2hdd || !have_ps2fs)
+	if (!have_dvrdrv || !have_dvrfile || !have_ps2hdd || !have_ps2fs)
 		showLoadingModulesMsg("dvr");
 
-	if (!load_ps2atad_stack()) {
-		DPRINTF(" [DVR]: skipping load because ATAD/HDD stack failed to initialize\n");
+	if (!load_ps2hdd_stack(1)) {
+		DPRINTF(" [DVR]: skipping load because HDD stack failed to initialize\n");
 		return;
 	}
 
@@ -1414,29 +1414,20 @@ static void switchNetworkStack(int target_mode)
 #ifdef DVRP
 static void switchPsxHddDriverStack(int use_dvr_stack)
 {
-	int block_stack_active;
-
 	if (!console_is_PSX)
 		return;
-
-	block_stack_active = (block_storage_stack_mode != BLOCK_STACK_NONE || have_ps2hdd || have_ps2fs);
-#ifdef EXFAT
-	block_stack_active = (block_stack_active || have_ata_bd);
-#endif
 
 	if (use_dvr_stack) {
 		if (have_DVRP_HDD_modules)
 			return;
-		if (!have_HDD_modules && !block_stack_active && !have_ps2atad && !have_dvrdrv && !have_dvrfile)
-			return;
-		DPRINTF("Switching PSX HDD stack (hdd0:/ -> dvr_hdd0:/), resetting IOP\n");
+		DPRINTF("Loading PSX DVR HDD stack without resetting IOP\n");
 	} else {
-		if (!have_DVRP_HDD_modules && !have_ps2atad && !have_dvrdrv && !have_dvrfile)
+		if (have_HDD_modules)
 			return;
-		DPRINTF("Switching PSX HDD stack (dvr_hdd0:/ -> hdd0:/), resetting IOP\n");
+		if (!have_DVRP_HDD_modules && !have_dvrdrv && !have_dvrfile)
+			return;
+		DPRINTF("Loading PSX APA HDD stack without resetting IOP\n");
 	}
-
-	resetRuntimeDeviceState(TRUE);
 }
 #endif
 
@@ -1711,8 +1702,8 @@ int loadDVRPHddModules(void)
 		if (have_DVRP_HDD_modules) {
 			sceCdNoticeGameStart(0, NULL);
 		} else {
-			DPRINTF(" [DVR_HDD]: stack incomplete (ATAD=%d HDD=%d FS=%d DVRDRV=%d DVRFILE=%d)\n",
-			        have_ps2atad, have_ps2hdd, have_ps2fs, have_dvrdrv, have_dvrfile);
+			DPRINTF(" [DVR_HDD]: stack incomplete (HDD=%d FS=%d DVRDRV=%d DVRFILE=%d)\n",
+			        have_ps2hdd, have_ps2fs, have_dvrdrv, have_dvrfile);
 		}
 	}
 	return have_DVRP_HDD_modules;
