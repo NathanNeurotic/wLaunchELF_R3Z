@@ -486,6 +486,7 @@ void saveConfigToPath(char *mainMsg, char *CNF, const char *target_path)
 	        "Misc_PS2Net = %s\r\n"
 	        "Misc_PS2PowerOff = %s\r\n"
 	        "Misc_HddManager = %s\r\n"
+	        "Misc_Exploit_Installer = %s\r\n"
 	        "Misc_TextEditor = %s\r\n"
 	        "Misc_Configure = %s\r\n"
 	        "Misc_ShowFont = %s\r\n"
@@ -502,6 +503,7 @@ void saveConfigToPath(char *mainMsg, char *CNF, const char *target_path)
 	        setting->Misc_PS2Net + i,
 	        setting->Misc_PS2PowerOff + i,
 	        setting->Misc_HddManager + i,
+	        setting->Misc_Exploit_Installer + i,
 	        setting->Misc_TextEditor + i,
 	        setting->Misc_Configure + i,
 	        setting->Misc_ShowFont + i,
@@ -682,6 +684,7 @@ void initConfig(void)
 	sprintf(setting->Misc_PS2Net, "%s/%s", LNG_DEF(MISC), LNG_DEF(PS2Net));
 	sprintf(setting->Misc_PS2PowerOff, "%s/%s", LNG_DEF(MISC), LNG_DEF(PS2PowerOff));
 	sprintf(setting->Misc_HddManager, "%s/%s", LNG_DEF(MISC), LNG_DEF(HddManager));
+	sprintf(setting->Misc_Exploit_Installer, "%s/%s", LNG_DEF(MISC), LNG_DEF(Exploit_Installer));
 	sprintf(setting->Misc_TextEditor, "%s/%s", LNG_DEF(MISC), LNG_DEF(TextEditor));
 	sprintf(setting->Misc_Configure, "%s/%s", LNG_DEF(MISC), LNG_DEF(Configure));
 	sprintf(setting->Misc_ShowFont, "%s/%s", LNG_DEF(MISC), LNG_DEF(ShowFont));
@@ -863,6 +866,9 @@ int loadConfig(char *mainMsg, char *CNF)
 				sprintf(setting->Misc_Show_Build_Info, "%s%s", setting->Misc, value);
 			else if (!strcmp(name, "Misc_OSDSYS"))
 				sprintf(setting->Misc_OSDSYS, "%s%s", setting->Misc, value);
+			else if (!strcmp(name, "Misc_Exploit_Installer"))
+				sprintf(setting->Misc_Exploit_Installer, "%s%s", setting->Misc,
+				        !strcmp(value, "Exploit Installer") ? LNG_DEF(Exploit_Installer) : value);
 			else if (!strcmp(name, "Misc_Reboot_IOP"))
 				sprintf(setting->Misc_Reboot_IOP, "%s%s", setting->Misc, value);
 			//----------

@@ -19,6 +19,9 @@ static int getHideHddMode(void)
 	if (boot_show_all_devices)
 		return HIDE_HDD_SHOW_ALL;
 
+	if (shouldHideHddAtaDevices())
+		return HIDE_HDD_HDD01_ATA01;
+
 	return (mode >= 0 && mode < HIDE_HDD_COUNT) ? mode : HIDE_HDD_HDD1_ATA1;
 }
 
@@ -1790,6 +1793,8 @@ int setFileList(const char *path, const char *ext, FILEINFO *files, int cnfmode)
 		strcpy(files[nfiles].name, LNG(OSDSYS));
 		files[nfiles++].stats.AttrFile = sceMcFileAttrFile;
 		strcpy(files[nfiles].name, LNG(HddManager));
+		files[nfiles++].stats.AttrFile = sceMcFileAttrFile;
+		strcpy(files[nfiles].name, LNG(Exploit_Installer));
 		files[nfiles++].stats.AttrFile = sceMcFileAttrFile;
 		strcpy(files[nfiles].name, LNG(TextEditor));
 		files[nfiles++].stats.AttrFile = sceMcFileAttrFile;
