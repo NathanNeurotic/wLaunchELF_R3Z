@@ -37,6 +37,15 @@ enum {  //For menu commands
 	NUM_MENU
 };
 
+/* EXPAND remains implemented below, but hidden until APA chain expansion is safe. */
+static const int hdd_party_menu_items[] = {
+	CREATE,
+	REMOVE,
+	RENAME,
+	INJECT_HEADER,
+	FORMAT,
+};
+
 #define SECTORS_PER_MB 2048  //Divide by this to convert from sector count to MB
 #define MB 1048576
 
@@ -351,7 +360,8 @@ int MenuParty(PARTYINFO Info)
 {
 	u64 color;
 	char enable[NUM_MENU], tmp[64];
-	int x, y, i, sel;
+	int x, y, i, sel, cmd;
+	int menu_count = sizeof(hdd_party_menu_items) / sizeof(hdd_party_menu_items[0]);
 	int event, post_event = 0;
 
 	int menu_len = strlen(LNG(Create)) > strlen(LNG(Remove)) ?
@@ -359,11 +369,10 @@ int MenuParty(PARTYINFO Info)
 	                   strlen(LNG(Remove));
 	menu_len = strlen(LNG(Rename)) > menu_len ? strlen(LNG(Rename)) : menu_len;
 	menu_len = strlen(LNG(Inject_Header)) > menu_len ? strlen(LNG(Inject_Header)) : menu_len;
-	menu_len = strlen(LNG(Expand)) > menu_len ? strlen(LNG(Expand)) : menu_len;
 	menu_len = strlen(LNG(Format)) > menu_len ? strlen(LNG(Format)) : menu_len;
 
 	int menu_ch_w = menu_len + 1;                                 //Total characters in longest menu string
-	int menu_ch_h = NUM_MENU;                                     //Total number of menu lines
+	int menu_ch_h = menu_count;                                   //Total number of menu lines
 	int mSprite_Y1 = 64;                                          //Top edge of sprite
 	int mSprite_X2 = SCREEN_WIDTH - 35;                           //Right edge of sprite
 	int mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;   //Left edge of sprite
@@ -385,13 +394,11 @@ int MenuParty(PARTYINFO Info)
 		enable[REMOVE] = FALSE;
 		enable[RENAME] = FALSE;
 		enable[INJECT_HEADER] = FALSE;
-		enable[EXPAND] = FALSE;
 	}
 	if (Info.Treatment == TREAT_SYSTEM) {
 		enable[REMOVE] = FALSE;
 		enable[RENAME] = FALSE;
 		enable[INJECT_HEADER] = FALSE;
-		enable[EXPAND] = FALSE;
 	}
 	if (Info.Treatment != TREAT_PFS) {
 		enable[INJECT_HEADER] = FALSE;
@@ -406,8 +413,8 @@ int MenuParty(PARTYINFO Info)
 		enable[EXPAND] = FALSE;
 	}//*/
 	enable[EXPAND] = FALSE;
-	for (sel = 0; sel < NUM_MENU; sel++)
-		if (enable[sel] == TRUE)
+	for (sel = 0; sel < menu_count; sel++)
+		if (enable[hdd_party_menu_items[sel]] == TRUE)
 			break;
 
 	event = 1;  //event = initial entry
@@ -415,20 +422,20 @@ int MenuParty(PARTYINFO Info)
 		//Pad response section
 		waitPadReady(0, 0);
 		if (readpad()) {
-			if (new_pad & PAD_UP && sel < NUM_MENU) {
+			if (new_pad & PAD_UP && sel < menu_count) {
 				event |= 2;  //event |= valid pad command
 				do {
 					sel--;
 					if (sel < 0)
-						sel = NUM_MENU - 1;
-				} while (!enable[sel]);
-			} else if (new_pad & PAD_DOWN && sel < NUM_MENU) {
+						sel = menu_count - 1;
+				} while (!enable[hdd_party_menu_items[sel]]);
+			} else if (new_pad & PAD_DOWN && sel < menu_count) {
 				event |= 2;  //event |= valid pad command
 				do {
 					sel++;
-					if (sel == NUM_MENU)
+					if (sel == menu_count)
 						sel = 0;
-				} while (!enable[sel]);
+				} while (!enable[hdd_party_menu_items[sel]]);
 			} else if ((new_pad & PAD_TRIANGLE) || (!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {
 				return -1;
 			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
@@ -445,21 +452,20 @@ int MenuParty(PARTYINFO Info)
 			              mSprite_X2, mSprite_Y2);
 			drawFrame(mSprite_X1, mSprite_Y1, mSprite_X2, mSprite_Y2, setting->color[COLOR_FRAME]);
 
-			for (i = 0, y = mSprite_Y1 + FONT_HEIGHT / 2; i < NUM_MENU; i++) {
-				if (i == CREATE)
+			for (i = 0, y = mSprite_Y1 + FONT_HEIGHT / 2; i < menu_count; i++) {
+				cmd = hdd_party_menu_items[i];
+				if (cmd == CREATE)
 					strcpy(tmp, LNG(Create));
-				else if (i == REMOVE)
+				else if (cmd == REMOVE)
 					strcpy(tmp, LNG(Remove));
-				else if (i == RENAME)
+				else if (cmd == RENAME)
 					strcpy(tmp, LNG(Rename));
-				else if (i == INJECT_HEADER)
+				else if (cmd == INJECT_HEADER)
 					strcpy(tmp, LNG(Inject_Header));
-				else if (i == EXPAND)
-					strcpy(tmp, LNG(Expand));
-				else if (i == FORMAT)
+				else if (cmd == FORMAT)
 					strcpy(tmp, LNG(Format));
 
-				if (enable[i])
+				if (enable[cmd])
 					color = setting->color[COLOR_TEXT];
 				else
 					color = setting->color[COLOR_FRAME];
@@ -467,7 +473,7 @@ int MenuParty(PARTYINFO Info)
 				printXY(tmp, mSprite_X1 + 2 * FONT_WIDTH, y, color, TRUE, 0);
 				y += FONT_HEIGHT;
 			}
-			if (sel < NUM_MENU)
+			if (sel < menu_count)
 				drawChar(LEFT_CUR, mSprite_X1 + FONT_WIDTH, mSprite_Y1 + (FONT_HEIGHT / 2 + sel * FONT_HEIGHT), setting->color[COLOR_TEXT]);
 
 			//Tooltip section
@@ -494,7 +500,7 @@ int MenuParty(PARTYINFO Info)
 		post_event = event;
 		event = 0;
 	}  //ends while
-	return sel;
+	return hdd_party_menu_items[sel];
 }
 //------------------------------
 //endfunc MenuParty

@@ -49,14 +49,8 @@ Dual HDD/ATA support is built in for future development.
 
 ### HDD APA header injection
 
-The HDD Manager R1 menu includes `Inject Header` for PFS partitions. After selecting it, choose the source device:
-
-- `usb:`
-- `mmce0:`
-- `mmce1:`
-- `udpfs:`
-
-MMCE and UDPFS choices are available in builds that include those drivers. The injector prepares the selected source stack when needed and waits up to 3 seconds for the header files. Files are only searched in that device's partition-named folder:
+The HDD Manager R1 menu includes `Inject Header` for PFS partitions.  
+Source for files includes usb, mmce and udpfs:
 
 `<source>/__Headers/<partition name>/`
 
@@ -66,7 +60,8 @@ Required files:
 - `list.ico`
 
 Optional file:
-- `boot.kelf`
+- `boot.kelf`  
+Use KELFTool to create a kelf.
 
 Example for partition `PP.ULE` on USB:
 
@@ -74,7 +69,6 @@ Example for partition `PP.ULE` on USB:
 - `usb:/__Headers/PP.ULE/icon.sys`
 - `usb:/__Headers/PP.ULE/list.ico`
 
-Use the same layout with `mmce0:`, `mmce1:`, or `udpfs:` as the source prefix.
 
 ### Build shortcuts
 
