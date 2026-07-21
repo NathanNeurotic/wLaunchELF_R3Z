@@ -2,6 +2,7 @@
 //File name:    hdd.c
 //--------------------------------------------------------------
 #include "launchelf.h"
+#include "hdd_header_injector.h"
 
 #define MAX_PARTGB 128                  //Partition MAX in GB
 #define MAX_PARTMB (MAX_PARTGB * 1024)  //Partition MAX in MB
@@ -30,6 +31,7 @@ enum {  //For menu commands
 	CREATE = 0,
 	REMOVE,
 	RENAME,
+	INJECT_HEADER,
 	EXPAND,
 	FORMAT,
 	NUM_MENU
@@ -356,6 +358,7 @@ int MenuParty(PARTYINFO Info)
 	                   strlen(LNG(Create)) :
 	                   strlen(LNG(Remove));
 	menu_len = strlen(LNG(Rename)) > menu_len ? strlen(LNG(Rename)) : menu_len;
+	menu_len = strlen(LNG(Inject_Header)) > menu_len ? strlen(LNG(Inject_Header)) : menu_len;
 	menu_len = strlen(LNG(Expand)) > menu_len ? strlen(LNG(Expand)) : menu_len;
 	menu_len = strlen(LNG(Format)) > menu_len ? strlen(LNG(Format)) : menu_len;
 
@@ -378,10 +381,20 @@ int MenuParty(PARTYINFO Info)
 	if ((Info.Name[0] == '_') && (Info.Name[1] == '_')) {
 		enable[REMOVE] = FALSE;
 	}
+	if (Info.Name[0] == '\0') {
+		enable[REMOVE] = FALSE;
+		enable[RENAME] = FALSE;
+		enable[INJECT_HEADER] = FALSE;
+		enable[EXPAND] = FALSE;
+	}
 	if (Info.Treatment == TREAT_SYSTEM) {
 		enable[REMOVE] = FALSE;
 		enable[RENAME] = FALSE;
+		enable[INJECT_HEADER] = FALSE;
 		enable[EXPAND] = FALSE;
+	}
+	if (Info.Treatment != TREAT_PFS) {
+		enable[INJECT_HEADER] = FALSE;
 	}
 	/*if (Info.Treatment == TREAT_HDL_RAW) {
 		enable[EXPAND] = FALSE;
@@ -439,6 +452,8 @@ int MenuParty(PARTYINFO Info)
 					strcpy(tmp, LNG(Remove));
 				else if (i == RENAME)
 					strcpy(tmp, LNG(Rename));
+				else if (i == INJECT_HEADER)
+					strcpy(tmp, LNG(Inject_Header));
 				else if (i == EXPAND)
 					strcpy(tmp, LNG(Expand));
 				else if (i == FORMAT)
@@ -483,6 +498,110 @@ int MenuParty(PARTYINFO Info)
 }
 //------------------------------
 //endfunc MenuParty
+//--------------------------------------------------------------
+static int MenuHeaderSource(const char **source_device)
+{
+	const char *items[4];
+	const char *title = LNG(Header_Source);
+	u64 color;
+	char tmp[64];
+	int x, y, i, sel, count;
+	int menu_len, menu_ch_w, menu_ch_h;
+	int mSprite_X1, mSprite_Y1, mSprite_X2, mSprite_Y2;
+	int event, post_event = 0;
+
+	if (source_device == NULL)
+		return -1;
+
+	count = 0;
+	items[count++] = "usb:";
+#ifdef MMCE
+	items[count++] = "mmce0:";
+	items[count++] = "mmce1:";
+#endif
+#ifdef UDPFS
+	items[count++] = "udpfs:";
+#endif
+
+	menu_len = strlen(title);
+	for (i = 0; i < count; i++)
+		menu_len = strlen(items[i]) > menu_len ? strlen(items[i]) : menu_len;
+
+	menu_ch_w = menu_len + 1;
+	menu_ch_h = count + 1;
+	mSprite_Y1 = 64;
+	mSprite_X2 = SCREEN_WIDTH - 35;
+	mSprite_X1 = mSprite_X2 - (menu_ch_w + 3) * FONT_WIDTH;
+	mSprite_Y2 = mSprite_Y1 + (menu_ch_h + 1) * FONT_HEIGHT;
+
+	sel = 0;
+	event = 1;
+	while (1) {
+		waitPadReady(0, 0);
+		if (readpad()) {
+			if (new_pad & PAD_UP) {
+				event |= 2;
+				sel--;
+				if (sel < 0)
+					sel = count - 1;
+			} else if (new_pad & PAD_DOWN) {
+				event |= 2;
+				sel++;
+				if (sel == count)
+					sel = 0;
+			} else if ((new_pad & PAD_TRIANGLE) || (!swapKeys && new_pad & PAD_CROSS) || (swapKeys && new_pad & PAD_CIRCLE)) {
+				return -1;
+			} else if ((swapKeys && new_pad & PAD_CROSS) || (!swapKeys && new_pad & PAD_CIRCLE)) {
+				event |= 2;
+				break;
+			}
+		}
+
+		if (event || post_event) {
+			drawPopSprite(setting->color[COLOR_BACKGR],
+			              mSprite_X1, mSprite_Y1,
+			              mSprite_X2, mSprite_Y2);
+			drawFrame(mSprite_X1, mSprite_Y1, mSprite_X2, mSprite_Y2, setting->color[COLOR_FRAME]);
+
+			printXY(title, mSprite_X1 + 2 * FONT_WIDTH, mSprite_Y1 + FONT_HEIGHT / 2, setting->color[COLOR_SELECT], TRUE, 0);
+
+			for (i = 0, y = mSprite_Y1 + FONT_HEIGHT / 2 + FONT_HEIGHT; i < count; i++) {
+				strcpy(tmp, items[i]);
+				color = setting->color[COLOR_TEXT];
+				printXY(tmp, mSprite_X1 + 2 * FONT_WIDTH, y, color, TRUE, 0);
+				y += FONT_HEIGHT;
+			}
+			drawChar(LEFT_CUR, mSprite_X1 + FONT_WIDTH, mSprite_Y1 + (FONT_HEIGHT / 2 + (sel + 1) * FONT_HEIGHT), setting->color[COLOR_TEXT]);
+
+			x = SCREEN_MARGIN;
+			y = Menu_tooltip_y;
+			drawSprite(setting->color[COLOR_BACKGR],
+			           0, y - 1,
+			           SCREEN_WIDTH, y + 16);
+			if (swapKeys)
+				sprintf(tmp, "\xFF"
+				             "1:%s \xFF"
+				             "0:%s \xFF"
+				             "3:%s",
+				        LNG(OK), LNG(Cancel), LNG(Back));
+			else
+				sprintf(tmp, "\xFF"
+				             "0:%s \xFF"
+				             "1:%s \xFF"
+				             "3:%s",
+				        LNG(OK), LNG(Cancel), LNG(Back));
+			printXY(tmp, x, y, setting->color[COLOR_SELECT], TRUE, 0);
+		}
+		drawScr();
+		post_event = event;
+		event = 0;
+	}
+
+	*source_device = items[sel];
+	return sel;
+}
+//------------------------------
+//endfunc MenuHeaderSource
 //--------------------------------------------------------------
 int CreateParty(char *party, int size)
 {
@@ -844,6 +963,35 @@ void hddManager(void)
 							}
 						}
 					}  //ends clause for normal partition RENAME
+				} else if (ret == INJECT_HEADER) {
+					const char *source_device = NULL;
+					char source_dir[MAX_PATH];
+					char confirm[MAX_PATH];
+
+					if (MenuHeaderSource(&source_device) >= 0) {
+						snprintf(confirm, sizeof(confirm),
+						         "Inject APA header into hdd0:%s from %s?\n"
+						         "Use %s/__Headers/%s/\n"
+						         "Required: system.cnf, icon.sys, list.ico",
+						         PartyInfo[browser_sel].Name, source_device, source_device, PartyInfo[browser_sel].Name);
+					}
+					if (source_device != NULL && ynDialog(confirm) == 1) {
+						unmountAll();
+						unmountParty(0);
+						unmountParty(1);
+						source_dir[0] = '\0';
+						ret = InjectHddPartitionHeaderFromSource(PartyInfo[browser_sel].Name, source_device, source_dir, sizeof(source_dir));
+						if (ret >= 0) {
+							snprintf(tmp, sizeof(tmp), "Header injected from %s", source_dir);
+							drawMsg(tmp);
+						} else {
+							snprintf(tmp, sizeof(tmp), "Header injection failed: %d", ret);
+							drawMsg(tmp);
+						}
+						WaitTime = Timer();
+						while (Timer() < WaitTime + 1500)
+							;
+					}
 				} else if (ret == EXPAND) {
 					drawMsg(LNG(Select_New_Partition_Size_In_MB));
 					drawMsg(LNG(Select_New_Partition_Size_In_MB));
