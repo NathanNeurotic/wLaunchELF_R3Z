@@ -210,13 +210,33 @@ static int loadFilePayload(char *elf_path, int argc, char *argv[], int reset_iop
 	return 0;
 }
 
+#define MAX_SAVED_ARGC 16
+#define MAX_SAVED_ARG_LEN 256
+static char s_saved_elf_path[MAX_SAVED_ARG_LEN];
+static char s_saved_argv_data[MAX_SAVED_ARGC][MAX_SAVED_ARG_LEN];
+static char *s_saved_argv[MAX_SAVED_ARGC];
+
 int main(int argc, char *argv[])
 {
 	char *elf_path;
-	int reset_iop, skip_argv0;
+	int reset_iop, skip_argv0, i;
 
 	if (argc < 1)
 		return -EINVAL;
+
+	if (argc > MAX_SAVED_ARGC)
+		argc = MAX_SAVED_ARGC;
+
+	for (i = 0; i < argc; i++) {
+		if (argv[i] != NULL) {
+			strncpy(s_saved_argv_data[i], argv[i], sizeof(s_saved_argv_data[i]) - 1);
+			s_saved_argv_data[i][sizeof(s_saved_argv_data[i]) - 1] = '\0';
+		} else {
+			s_saved_argv_data[i][0] = '\0';
+		}
+		s_saved_argv[i] = s_saved_argv_data[i];
+	}
+	argv = s_saved_argv;
 
 	SifInitRpc(0);
 
@@ -226,7 +246,6 @@ int main(int argc, char *argv[])
 
 	if (argc > 0 && !strncmp(argv[argc - 1], "-la=", 4)) {
 		char *flags;
-		int i;
 
 		flags = argv[argc - 1] + 4;
 		for (i = 0; flags[i] != '\0'; i++) {
@@ -252,6 +271,10 @@ int main(int argc, char *argv[])
 
 	if (elf_path == NULL)
 		elf_path = argv[0];
+
+	strncpy(s_saved_elf_path, elf_path, sizeof(s_saved_elf_path) - 1);
+	s_saved_elf_path[sizeof(s_saved_elf_path) - 1] = '\0';
+	elf_path = s_saved_elf_path;
 
 	if (skip_argv0) {
 		if (argc < 1)
