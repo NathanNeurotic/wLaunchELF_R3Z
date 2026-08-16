@@ -6,7 +6,6 @@ on:
       make_args:
         description: pass extra make argumments to control features not explicitly handled by CI
   push:
-  pull_request:
   repository_dispatch:
     types: [run_build]
 
@@ -195,6 +194,6 @@ jobs:
           repository: ${{ matrix.repo }} 
           event-type: Component_update
           client-payload: '{"sha": "${{ github.sha }}"}'
-    - name: auto-update disabled for target
+    - name: auto-update dispatch disabled for target
       if: ${{ !matrix.enabled }}
       run: echo "Auto-update dispatch disabled for ${{ matrix.repo }}."
