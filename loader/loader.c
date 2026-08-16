@@ -149,7 +149,6 @@ static void resetIOP(void)
 	}
 	while (!SifIopSync()) {
 	}
-	SifInitRpc(0);
 }
 
 static int loadEmbeddedPayload(char *elf_path, int argc, char *argv[], int reset_iop)
@@ -190,11 +189,7 @@ static int loadFilePayload(char *elf_path, int argc, char *argv[], int reset_iop
 	FlushCache(0);
 
 	memset(&elfdata, 0, sizeof(elfdata));
-	SifLoadFileInit();
 	ret = SifLoadElf(elf_path, &elfdata);
-	if (ret != 0 || elfdata.epc == 0)
-		ret = SifLoadElfEncrypted(elf_path, &elfdata);
-	SifLoadFileExit();
 
 	if (ret != 0 || elfdata.epc == 0 || (elfdata.epc & 0x3) != 0)
 		return -ENOENT;
