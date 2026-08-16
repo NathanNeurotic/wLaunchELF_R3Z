@@ -6,6 +6,7 @@ on:
       make_args:
         description: pass extra make argumments to control features not explicitly handled by CI
   push:
+  pull_request:
   repository_dispatch:
     types: [run_build]
 
