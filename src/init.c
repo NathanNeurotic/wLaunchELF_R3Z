@@ -221,6 +221,7 @@ static void stopUsbMassForPoweroff(void);
 static void load_ps2ip(void);
 #endif
 static int load_ps2hdd_stack(int with_ata_bd);
+static int load_ps2atad_stack(void);
 static void showLoadingModulesMsg(const char *device_name);
 static void showRebootingIopMsg(void);
 #ifdef ETH
@@ -496,7 +497,6 @@ static int load_ps2hdd_stack(int with_ata_bd)
 //------------------------------
 //endfunc load_ps2hdd_stack
 //---------------------------------------------------------------------------
-#ifdef DVRP
 static int load_ps2atad_stack(void)
 {
 	int ret, ID __attribute__((unused));
@@ -551,7 +551,6 @@ static int load_ps2atad_stack(void)
 //------------------------------
 //endfunc load_ps2atad_stack
 //---------------------------------------------------------------------------
-#endif
 IMPORT_BIN2C(secrsif_irx);
 IMPORT_BIN2C(exploit_ioprp_img);
 int loadSecrSifModule(void)
@@ -1730,7 +1729,7 @@ int loadHddModules(void)
 	if (!have_HDD_modules) {
 		showLoadingModulesMsg("hdd");
 		setupPowerOff();
-		load_ps2hdd_stack(1);  //also loads ps2hdd & ps2fs
+		load_ps2atad_stack();  //loads dev9, ps2atad, ps2hdd & ps2fs
 		have_HDD_modules = (have_ps2hdd && have_ps2fs);
 		if (!have_HDD_modules) {
 			DPRINTF(" [HDD]: stack incomplete (HDD=%d FS=%d)\n",
