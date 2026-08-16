@@ -704,6 +704,8 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 	static char loader_arg[8];
 	const char *handoff_path = NULL;
 	int argc;
+	int hdd_pfs_ix = -1;
+	char hdd_pfs_name[6] = "pfs0:";
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
 	char dvr_pfs_name[10] = "dvr_pfs0:";
@@ -726,20 +728,23 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 #endif
 
 	if (isHddPartyPath(party) && (!strncmp(filename, "pfs0:", 5))) {
-		if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY)) {
-			//Some error occurred, it could be due to something else having used pfs0
-			unmountParty(0);  //So we try unmounting pfs0, to try again
-			if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY))
-				return;  //If it still fails, we have to give up...
-		}
+		/*
+		 * The file browser/header check may already have mounted this APA
+		 * partition on any available pfsN slot. Re-mounting it unconditionally
+		 * on pfs0 can fail when pfs0 is busy or the partition is already mounted
+		 * elsewhere. Reuse mountParty's tracked slot and point the low-memory
+		 * loader at that exact mount instead.
+		 */
+		hdd_pfs_ix = mountParty(party);
+		if (hdd_pfs_ix < 0)
+			return;
+		hdd_pfs_name[3] = '0' + hdd_pfs_ix;
+		snprintf(exec_target, sizeof(exec_target), "%s%s", hdd_pfs_name, &filename[5]);
+		DPRINTF("RunLoaderElf: APA launch reusing pfs%d for '%s', target='%s'\n",
+		        hdd_pfs_ix, party, exec_target);
 
-		//If a path to a file on PFS is specified, change it to the standard format.
-		//hddN:partition:pfs:path/to/file
-		if (strncmp(filename, "pfs0:", 5) == 0) {
-			sprintf(bootpath, "%s:pfs:%s", party, &filename[5]);
-		} else {
-			sprintf(bootpath, "%s:%s", party, filename);
-		}
+		//Pass the standard HDD path to the launched ELF as argv[0].
+		snprintf(bootpath, sizeof(bootpath), "%s:pfs:%s", party, &filename[5]);
 
 		argv[0] = exec_target;
 		if (isExplicitHddHandoffPath(handoff_path))
