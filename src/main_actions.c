@@ -173,7 +173,27 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 		p = strchr(party, '/');
 		snprintf(fullpath, sizeof(fullpath), "pfs0:%s", p);
 		*p = 0;
+#ifdef XFROM
+		{
+			char hdd_handoff[MAX_PATH];
+
+			/*
+			 * Diagnostic: read the selected APA ELF into EE RAM while PFS is
+			 * still alive, then let the embedded loader reset the IOP and
+			 * execute the RAM image. This bypasses LOADFILE-from-PFS entirely.
+			 */
+			snprintf(hdd_handoff, sizeof(hdd_handoff), "%s:pfs:%s", party, &fullpath[5]);
+			if (PrepareMbrLaunchPayload(hdd_handoff, mbr_mem_arg, sizeof(mbr_mem_arg)) < 0)
+				goto ELFnotFound;
+			x = setting->reboot_iop_elf_load;
+			CleanUpForExec();
+			LaunchArgsClear();
+			RunLoaderMemory(hdd_handoff, mbr_mem_arg, x);
+			return;
+		}
+#else
 		goto ELFchecked;
+#endif
 	} else if (!strncmp(path, "dvr_hdd0:/", 10)) {
 #ifdef DVRP
 		if (!console_is_PSX)
@@ -418,7 +438,6 @@ Recurse_for_ESR:  //Recurse here for PS2Disc command with ESR disc
 					if (wleExists(dvdpl_path)) {
 						dvdpl_update = 1;
 						break;
-					}
 				}
 
 				if ((tst < 0) && (dvdpl_update == 0))
