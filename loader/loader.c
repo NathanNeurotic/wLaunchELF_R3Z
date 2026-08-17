@@ -8,10 +8,19 @@
 #include "sifrpc.h"
 #include "loadfile.h"
 #include "fileXio_rpc.h"
-#include "string.h"
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include "iopheap.h"
 #include "errno.h"
 #include "fcntl.h"
+
+#ifndef SEEK_SET
+#define SEEK_SET 0
+#endif
+#ifndef SEEK_END
+#define SEEK_END 2
+#endif
 
 #define MAX_LOADER_ARGS 16
 #define MAX_LOADER_ARG_LEN 256
