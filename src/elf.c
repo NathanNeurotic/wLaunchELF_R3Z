@@ -555,7 +555,6 @@ void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop)
 //--------------------------------------------------------------
 //End of func:  void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop)
 //--------------------------------------------------------------
-#ifdef XFROM
 static int isElfPayload(const u8 *payload, int payload_size)
 {
 	const Elf32_Ehdr *eh;
@@ -574,6 +573,84 @@ static int isLikelyEncryptedPayload(const u8 *payload, int payload_size)
 	return (payload != NULL && payload_size >= 4 && payload[0] == 0x01 && payload[2] == 0x00);
 }
 
+static int StageExecutablePayload(const char *open_path, char *mem_arg, size_t mem_arg_size)
+{
+	u8 *payload;
+	u8 *launch_payload;
+	s64 payload_size64;
+	u32 ee_mem_end;
+	u32 stage_addr;
+	int payload_size;
+	int fd, total, rd;
+#ifdef XFROM
+	int encrypted_payload;
+#endif
+
+	if (open_path == NULL || mem_arg == NULL || mem_arg_size < 22)
+		return -1;
+
+	fd = genOpen((char *)open_path, FIO_O_RDONLY);
+	if (fd < 0)
+		return -1;
+
+	ee_mem_end = GetMemorySize();
+	payload_size64 = genLseek(fd, 0, SEEK_END);
+	if (payload_size64 <= 0 || payload_size64 > (s64)(ee_mem_end - 0x00200000)) {
+		genClose(fd);
+		return -1;
+	}
+	if (genLseek(fd, 0, SEEK_SET) < 0) {
+		genClose(fd);
+		return -1;
+	}
+
+	payload_size = (int)payload_size64;
+	stage_addr = (ee_mem_end - (u32)payload_size) & ~63;
+	if (stage_addr < 0x01000000)
+		stage_addr = 0x01000000;
+
+	payload = (u8 *)stage_addr;
+	total = 0;
+	while (total < payload_size) {
+		rd = genRead(fd, payload + total, payload_size - total);
+		if (rd <= 0)
+			break;
+		total += rd;
+	}
+	genClose(fd);
+
+	if (total != payload_size)
+		return -1;
+
+	launch_payload = payload;
+#ifdef XFROM
+	encrypted_payload = isLikelyEncryptedPayload(payload, payload_size);
+	if (!isElfPayload(payload, payload_size) && encrypted_payload) {
+		void *decrypted_payload;
+
+		if (!loadSecrSifModule())
+			return -1;
+
+		if (!SecrInit())
+			return -1;
+		decrypted_payload = SecrDiskBootFile(payload);
+		SecrDeinit();
+
+		if (decrypted_payload == NULL)
+			return -1;
+
+		launch_payload = (u8 *)decrypted_payload;
+		if (launch_payload < payload || launch_payload >= payload + payload_size)
+			return -1;
+		payload_size -= (int)(launch_payload - payload);
+	}
+#endif
+
+	snprintf(mem_arg, mem_arg_size, "mem:%08X:%08X", (u32)launch_payload, (u32)payload_size);
+	return 0;
+}
+
+#ifdef XFROM
 static int getMbrOpenPath(const char *path, char *open_path, size_t open_path_size)
 {
 	const char *pfs;
@@ -619,13 +696,6 @@ static int getMbrOpenPath(const char *path, char *open_path, size_t open_path_si
 int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size)
 {
 	char open_path[MAX_PATH];
-	u8 *payload;
-	u8 *launch_payload;
-	s64 payload_size64;
-	u32 ee_mem_end;
-	int payload_size;
-	int encrypted_payload;
-	int fd, total, rd;
 
 	if (path == NULL || mem_arg == NULL || mem_arg_size < 22)
 		return -1;
@@ -633,62 +703,8 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 	if (getMbrOpenPath(path, open_path, sizeof(open_path)) < 0)
 		return -1;
 
-	fd = genOpen(open_path, FIO_O_RDONLY);
-	if (fd < 0)
-		return -1;
-
-	ee_mem_end = GetMemorySize();
-	payload_size64 = genLseek(fd, 0, SEEK_END);
-	if (ee_mem_end <= MBR_PAYLOAD_LOAD_ADDR ||
-	    payload_size64 <= 0 ||
-	    payload_size64 > (s64)(ee_mem_end - MBR_PAYLOAD_LOAD_ADDR)) {
-		genClose(fd);
-		return -1;
-	}
-	genLseek(fd, 0, SEEK_SET);
-
-	payload = (u8 *)MBR_PAYLOAD_LOAD_ADDR;
-	payload_size = (int)payload_size64;
-	total = 0;
-	while (total < payload_size) {
-		rd = genRead(fd, payload + total, payload_size - total);
-		if (rd <= 0)
-			break;
-		total += rd;
-	}
-	genClose(fd);
-
-	if (total != payload_size)
-		return -1;
-
-	launch_payload = payload;
-	encrypted_payload = isLikelyEncryptedPayload(payload, payload_size);
-	if (!isElfPayload(payload, payload_size) && encrypted_payload) {
-		void *decrypted_payload;
-
-		if (!loadSecrSifModule())
-			return -1;
-
-		if (!SecrInit())
-			return -1;
-		decrypted_payload = SecrDiskBootFile(payload);
-		SecrDeinit();
-
-		if (decrypted_payload == NULL)
-			return -1;
-
-		launch_payload = (u8 *)decrypted_payload;
-		if (launch_payload < payload || launch_payload >= payload + payload_size)
-			return -1;
-		payload_size -= (int)(launch_payload - payload);
-	}
-
-	snprintf(mem_arg, mem_arg_size, "mem:%08X:%08X", (u32)launch_payload, (u32)payload_size);
-	return 0;
+	return StageExecutablePayload(open_path, mem_arg, mem_arg_size);
 }
-//--------------------------------------------------------------
-//End of func:  int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size)
-//--------------------------------------------------------------
 #endif
 //--------------------------------------------------------------
 // RunLoaderElf loads LOADER.ELF from program memory and passes
@@ -741,6 +757,9 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
+		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
+			snprintf(exec_target, sizeof(exec_target), "%s", filename);
+
 		argv[0] = exec_target;
 		if (isExplicitHddHandoffPath(handoff_path))
 			argv[1] = (char *)handoff_path;
@@ -762,12 +781,21 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 		} else {
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
+
+		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
+			snprintf(exec_target, sizeof(exec_target), "%s", filename);
+
 		argv[0] = exec_target;
 		if ((handoff_path != NULL) && !strncmp(handoff_path, "dvr_hdd0:/", 10))
 			argv[1] = (char *)handoff_path;
 		else
 			argv[1] = bootpath;
 #endif
+	} else if (!strncmp(filename, "vmc", 3)) {
+		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
+			snprintf(exec_target, sizeof(exec_target), "%s", filename);
+		argv[0] = exec_target;
+		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
 	} else {
 		argv[0] = exec_target;
 		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
