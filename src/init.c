@@ -900,8 +900,13 @@ static void loadBasicModules(void)
 	id = SifExecModuleBuffer(allowdvdv_irx, size_allowdvdv_irx, 0, NULL, &ret);  //unlocks cdvd for reading on psx dvr
 	DPRINTF(" [ALLOWDVD]: id=%d ret=%d\n", id, ret);
 #ifdef HOMEBREW_SIO2MAN
-	id = SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, NULL, &ret);
-	DPRINTF(" [SIO2MAN]: id=%d ret=%d\n", id, ret);
+	if (console_is_PSX) {
+		id = SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, NULL, &ret);
+		DPRINTF(" [SIO2MAN]: id=%d ret=%d\n", id, ret);
+	} else {
+		id = SifLoadModule("rom0:SIO2MAN", 0, NULL);
+		DPRINTF(" [rom0:SIO2MAN]: id=%d\n", id);
+	}
 #else
 	id = SifLoadModule("rom0:SIO2MAN", 0, NULL);
 	DPRINTF(" [rom0:SIO2MAN]: id=%d\n", id);
@@ -923,8 +928,13 @@ static void loadBasicModules(void)
 	DPRINTF(" [MCSERV]: id=%d ret=%d\n", id, ret);
 	//SifLoadModule("rom0:MCSERV", 0, NULL); //Sony
 #ifdef HOMEBREW_SIO2MAN
-	id = SifExecModuleBuffer(padman_irx, size_padman_irx, 0, NULL, &ret);  //Home
-	DPRINTF(" [PADMAN]: id=%d ret=%d\n", id, ret);
+	if (console_is_PSX) {
+		id = SifExecModuleBuffer(padman_irx, size_padman_irx, 0, NULL, &ret);  //Home
+		DPRINTF(" [PADMAN]: id=%d ret=%d\n", id, ret);
+	} else {
+		id = SifLoadModule("rom0:PADMAN", 0, NULL);
+		DPRINTF(" [rom0:PADMAN]: id=%d\n", id);
+	}
 #else
 	id = SifLoadModule("rom0:PADMAN", 0, NULL);
 	DPRINTF(" [rom0:PADMAN]: id=%d\n", id);

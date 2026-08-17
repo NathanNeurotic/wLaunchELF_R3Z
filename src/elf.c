@@ -60,12 +60,10 @@ static int launchArgsSetPlainError(char *message, size_t message_size, const cha
 
 static void launchArgsMakeOpenPath(const char *path, char *file_path, size_t file_path_size)
 {
-	strncpy(file_path, path, file_path_size - 1);
-	file_path[file_path_size - 1] = '\0';
-	if (genFixPath(path, file_path) < 0) {
-		strncpy(file_path, path, file_path_size - 1);
-		file_path[file_path_size - 1] = '\0';
-	}
+	if (path == NULL || file_path == NULL || file_path_size == 0)
+		return;
+	snprintf(file_path, file_path_size, "%s", path);
+	genFixPath(path, file_path);
 }
 
 static int launchArgsCommitLine(const char *line, int line_len, char *message, size_t message_size)
@@ -334,58 +332,6 @@ static int isHddPartyPath(const char *path)
 	return (!strncmp(path, "hdd", 3) && path[3] >= '0' && path[3] <= '9' && path[4] == ':');
 }
 
-static int isHddBrowserPath(const char *path)
-{
-	return (isHddPartyPath(path) && path[5] == '/');
-}
-
-static int isExplicitHddHandoffPath(const char *path)
-{
-	return (path != NULL && (isHddBrowserPath(path) || !strncmp(path, "uLE:", 4)));
-}
-
-static const char *normalizeExecArg0Path(const char *path, char *buffer, size_t buffer_size)
-{
-	const char *partition;
-	const char *subpath;
-	const char *suffix;
-	int part_len;
-	int unit = 0;
-
-	if (path == NULL || path[0] == '\0' || buffer == NULL || buffer_size == 0)
-		return path;
-
-	if (isHddBrowserPath(path)) {
-		partition = path + 6;
-		if (partition[0] == '\0')
-			return path;
-
-		subpath = strchr(partition, '/');
-		if (subpath == NULL) {
-			snprintf(buffer, buffer_size, "hdd%c:%s:pfs:/", path[3], partition);
-		} else {
-			part_len = (int)(subpath - partition);
-			if (part_len <= 0)
-				return path;
-			snprintf(buffer, buffer_size, "hdd%c:%.*s:pfs:%s", path[3], part_len, partition, subpath);
-		}
-		return buffer;
-	}
-
-	if (!parseUsbMassPathUnit(path, "usb", 3, &unit, &suffix) &&
-	    !parseUsbMassPathUnit(path, "mass", 4, &unit, &suffix))
-		return path;
-
-	if (*suffix == '\0')
-		suffix = "/";
-
-	if (*suffix != '/')
-		snprintf(buffer, buffer_size, "mass%d:/%s", unit, suffix);
-	else
-		snprintf(buffer, buffer_size, "mass%d:%s", unit, suffix);
-
-	return buffer;
-}
 
 static int tryCheckExecPath(const char *path, int *opened_any)
 {
@@ -699,26 +645,15 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)
 {
 	char *argv[ELFLOAD_MAX_ARGC], bootpath[256];
-	static char exec_target[MAX_PATH];
-	static char exec_arg0[MAX_PATH];
-	static char loader_arg[8];
-	const char *handoff_path = NULL;
 	int argc;
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
 	char dvr_pfs_name[10] = "dvr_pfs0:";
 #endif
 
-	if (selected_path != NULL && selected_path[0] != '\0')
-		handoff_path = normalizeExecArg0Path(selected_path, exec_arg0, sizeof(exec_arg0));
-	snprintf(exec_target, sizeof(exec_target), "%s", filename);
-	if (exec_kind == 1 && handoff_path != NULL && !strncmp(handoff_path, "mass", 4))
-		snprintf(exec_target, sizeof(exec_target), "%s", handoff_path);
-	DPRINTF("RunLoaderElf: exec_kind=%d reboot_iop=%d target='%s' handoff='%s' party='%s'\n",
-	        exec_kind, reboot_iop_elf_load, filename,
-	        (handoff_path != NULL) ? handoff_path : "",
-	        (party != NULL) ? party : "");
-	DPRINTF("RunLoaderElf: loader target='%s'\n", exec_target);
+	(void)selected_path;
+	(void)exec_kind;
+
 #ifdef DVRP
 	dvr_pfs_ix = (party != NULL) ? getDVRPPartyMountIndex(party) : -1;
 	if (dvr_pfs_ix >= 0)
@@ -736,16 +671,13 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 		//If a path to a file on PFS is specified, change it to the standard format.
 		//hddN:partition:pfs:path/to/file
 		if (strncmp(filename, "pfs0:", 5) == 0) {
-			sprintf(bootpath, "%s:pfs:%s", party, &filename[5]);
+			snprintf(bootpath, sizeof(bootpath), "%s:pfs:%s", party, &filename[5]);
 		} else {
-			sprintf(bootpath, "%s:%s", party, filename);
+			snprintf(bootpath, sizeof(bootpath), "%s:%s", party, filename);
 		}
 
-		argv[0] = exec_target;
-		if (isExplicitHddHandoffPath(handoff_path))
-			argv[1] = (char *)handoff_path;
-		else
-			argv[1] = bootpath;
+		argv[0] = filename;
+		argv[1] = bootpath;
 #ifdef DVRP
 	} else if (dvr_pfs_ix >= 0 && !strncmp(filename, dvr_pfs_name, 9)) {
 		if (0 > fileXioMount(dvr_pfs_name, party, FIO_MT_RDONLY)) {
@@ -758,32 +690,28 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 		//If a path to a file on PFS is specified, change it to the standard format.
 		//dvr_hdd0:partition:pfs:path/to/file
 		if (strncmp(filename, dvr_pfs_name, 9) == 0) {
-			sprintf(bootpath, "%s:pfs:%s", party, &filename[9]);
+			snprintf(bootpath, sizeof(bootpath), "%s:pfs:%s", party, &filename[9]);
 		} else {
-			sprintf(bootpath, "%s:%s", party, filename);
+			snprintf(bootpath, sizeof(bootpath), "%s:%s", party, filename);
 		}
-		argv[0] = exec_target;
-		if ((handoff_path != NULL) && !strncmp(handoff_path, "dvr_hdd0:/", 10))
-			argv[1] = (char *)handoff_path;
-		else
-			argv[1] = bootpath;
+		argv[0] = filename;
+		argv[1] = bootpath;
 #endif
 	} else {
-		argv[0] = exec_target;
-		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
+		argv[0] = filename;
+		argv[1] = filename;
 	}
 
-	(void)exec_kind;
-	argc = ELFLOAD_BASE_ARGC - 1;
+	argc = 2;
+	argv[argc++] = (reboot_iop_elf_load) ? "-r" : "-nr";
+
 	if (LaunchArgsPending())
-		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - ELFLOAD_BASE_ARGC);
-	snprintf(loader_arg, sizeof(loader_arg), "%s", (reboot_iop_elf_load) ? "-la=AR" : "-la=A");
-	argv[argc++] = loader_arg;
+		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - argc);
 	LaunchArgsClear();
-	DPRINTF("RunLoaderElf: loader mode arg='%s' argc=%d\n", loader_arg, argc);
 
 	RunEmbeddedLoader(argc, argv);
 }
+
 //------------------------------
 //End of func:  void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)
 //--------------------------------------------------------------
