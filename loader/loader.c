@@ -1,3 +1,6 @@
+//--------------------------------------------------------------
+// File name: loader.c
+//--------------------------------------------------------------
 #include "tamtypes.h"
 #include "debug.h"
 #include "kernel.h"
@@ -7,7 +10,6 @@
 #include "string.h"
 #include "iopheap.h"
 #include "errno.h"
-#include <elf.h>
 
 #define USER_MEM_START_ADDR 0x100000
 
@@ -108,59 +110,11 @@ static int parseMemPath(const char *path, u32 *addr, u32 *size)
 	return 0;
 }
 
-static int loadELFFromMemory(u32 elf_addr, u32 *entry)
-{
-	Elf32_Ehdr *eh;
-	Elf32_Phdr *ph;
-	void *src;
-	int i;
-
-	if (entry == NULL)
-		return -EINVAL;
-
-	eh = (Elf32_Ehdr *)elf_addr;
-	if (memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0)
-		return -ENOEXEC;
-	if ((eh->e_type != ET_EXEC) && (eh->e_type != ET_DYN))
-		return -ENOEXEC;
-	if (eh->e_machine != EM_MIPS)
-		return -ENOEXEC;
-	if (eh->e_entry == 0 || (eh->e_entry & 0x3) != 0)
-		return -ENOEXEC;
-
-	ph = (Elf32_Phdr *)(elf_addr + eh->e_phoff);
-	for (i = 0; i < eh->e_phnum; i++) {
-		if (ph[i].p_type != PT_LOAD)
-			continue;
-
-		src = (void *)(elf_addr + ph[i].p_offset);
-		memcpy((void *)ph[i].p_vaddr, src, ph[i].p_filesz);
-		if (ph[i].p_memsz > ph[i].p_filesz)
-			memset((void *)(ph[i].p_vaddr + ph[i].p_filesz), 0, ph[i].p_memsz - ph[i].p_filesz);
-	}
-
-	*entry = eh->e_entry;
-	FlushCache(0);
-	FlushCache(2);
-	return 0;
-}
-
 int main(int argc, char *argv[])
 {
 	static t_ExecData elfdata;
 	int ret, rebootiop = 0;
-	u32 entry = 0;
 	int i;
-
-	// Reset stack pointer into loader's local BSS (0x0009e000)
-	__asm__ __volatile__(
-		".set  noreorder\n\t"
-		"lui   $sp, 0x0009\n\t"
-		"nop\n\t"
-		"ori   $sp, $sp, 0xe000\n\t"
-		"nop\n\t"
-		".set  reorder\n\t"
-	);
 
 	// Initialize SIF RPC
 	SifInitRpc(0);
@@ -170,7 +124,7 @@ int main(int argc, char *argv[])
 		return -EINVAL;
 	}
 
-	// Copy incoming arguments safely into resident loader BSS before wiping user memory
+	// Copy incoming arguments safely into resident loader BSS
 	saved_target[0] = '\0';
 	saved_path[0] = '\0';
 
@@ -186,7 +140,7 @@ int main(int argc, char *argv[])
 		saved_path[sizeof(saved_path) - 1] = '\0';
 	}
 
-	// Check for reboot IOP flags: either "-r" (ISR standard) or "-la=...R..." (R3Z)
+	// Check for reboot IOP flags: "-r" or "-la=...R..."
 	for (i = 2; i < argc; i++) {
 		if (argv[i] != NULL) {
 			if (!strcmp("-r", argv[i])) {
@@ -198,11 +152,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	// Prepare outbound argv for the child ELF
+	// Prepare outbound argv for the child ELF:
+	// args[0] = bootpath (e.g. "hdd0:__system:pfs:path/to/elf" or "mc0:...")
 	exec_argc = 0;
 	exec_argv[exec_argc++] = saved_path;
 
-	// Copy any additional arguments (ignoring internal loader control flags)
+	// Copy any additional arguments
 	for (i = 2; i < argc && exec_argc < MAX_LOADER_ARGS; i++) {
 		if (argv[i] != NULL && strcmp(argv[i], "-r") != 0 && strcmp(argv[i], "-nr") != 0 && strncmp(argv[i], "-la=", 4) != 0) {
 			strncpy(saved_extra_args[exec_argc], argv[i], MAX_LOADER_ARG_LEN - 1);
@@ -212,7 +167,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	// Branch 1: Embedded Memory Payload (mem:ADDR:SIZE)
+	// Branch 1: Memory Staged Payload (mem:ADDR:SIZE) for MBR/XFROM
 	if (!strncmp(saved_target, "mem:", 4)) {
 		u32 elf_addr = 0, elf_size = 0;
 		if (parseMemPath(saved_target, &elf_addr, &elf_size) < 0 || elf_addr < USER_MEM_START_ADDR || elf_size == 0) {
@@ -227,34 +182,24 @@ int main(int argc, char *argv[])
 			while (!SifIopSync());
 		}
 
-		ret = loadELFFromMemory(elf_addr, &entry);
-		if (ret < 0) {
-			entry = USER_MEM_START_ADDR;
-			memcpy((void *)entry, (void *)elf_addr, elf_size);
-		}
-
+		memcpy((void *)USER_MEM_START_ADDR, (void *)elf_addr, elf_size);
 		SifExitRpc();
 		FlushCache(0);
 		FlushCache(2);
-		__asm__ __volatile__(
-			".set  noreorder\n\t"
-			"lui   $sp, 0x000a\n\t"
-			"nop\n\t"
-			"addiu $sp, $sp, 0x8000\n\t"
-			"nop\n\t"
-			".set  reorder\n\t"
-		);
-		ExecPS2((void *)entry, NULL, exec_argc, exec_argv);
+		ExecPS2((void *)USER_MEM_START_ADDR, NULL, exec_argc, exec_argv);
 		return 0;
 	}
 
-	// Branch 2: Standard File Payload (from MC / USB / host / CDVD / rom)
+	// Branch 2: Standard ELF Loading via SifLoadElf (from PFS / MC / USB / host / CDVD / ROM)
 	wipeUserMem();
 	FlushCache(0);
 
+	memset(&elfdata, 0, sizeof(elfdata));
+	SifLoadFileInit();
 	ret = SifLoadElf(saved_target, &elfdata);
 	if (ret != 0 || elfdata.epc == 0)
 		ret = SifLoadElfEncrypted(saved_target, &elfdata);
+	SifLoadFileExit();
 
 	if (ret == 0 && elfdata.epc != 0 && (elfdata.epc & 0x3) == 0) {
 		if (rebootiop) {
@@ -265,14 +210,6 @@ int main(int argc, char *argv[])
 		SifExitRpc();
 		FlushCache(0);
 		FlushCache(2);
-		__asm__ __volatile__(
-			".set  noreorder\n\t"
-			"lui   $sp, 0x000a\n\t"
-			"nop\n\t"
-			"addiu $sp, $sp, 0x8000\n\t"
-			"nop\n\t"
-			".set  reorder\n\t"
-		);
 		ExecPS2((void *)elfdata.epc, (void *)elfdata.gp, exec_argc, exec_argv);
 		return 0;
 	} else {

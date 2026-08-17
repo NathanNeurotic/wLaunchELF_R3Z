@@ -710,23 +710,14 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)
 {
 	char *argv[ELFLOAD_MAX_ARGC], bootpath[256];
-	static char exec_target[MAX_PATH];
-	static char loader_arg[8];
-	const char *handoff_path = NULL;
 	int argc;
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
 	char dvr_pfs_name[10];
 #endif
 
-	if (selected_path != NULL && selected_path[0] != '\0')
-		handoff_path = selected_path;
-
-	exec_target[0] = '\0';
-	argv[0] = filename;
-	argv[1] = filename;
-	argv[2] = NULL;
-	argv[3] = NULL;
+	(void)selected_path;
+	(void)exec_kind;
 
 #ifdef DVRP
 	dvr_pfs_ix = getDVRPPartyMountIndex(party);
@@ -737,72 +728,49 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 
 	if (isHddPartyPath(party) && (!strncmp(filename, "pfs0:", 5))) {
 		if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY)) {
-			//Some error occurred, it could be due to something else having used pfs0
-			unmountParty(0);  //So we try unmounting pfs0, to try again
+			// Some error occurred, it could be due to something else having used pfs0
+			unmountParty(0);  // So we try unmounting pfs0, to try again
 			if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY))
-				return;  //If it still fails, we have to give up...
+				return;  // If it still fails, we have to give up...
 		}
 
-		//If a path to a file on PFS is specified, change it to the standard format.
-		//hddN:partition:pfs:path/to/file
+		// hddN:partition:pfs:path/to/file
 		if (strncmp(filename, "pfs0:", 5) == 0) {
 			sprintf(bootpath, "%s:pfs:%s", party, &filename[5]);
 		} else {
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
-			snprintf(exec_target, sizeof(exec_target), "%s", filename);
-
-		argv[0] = exec_target;
-		if (isExplicitHddHandoffPath(handoff_path))
-			argv[1] = (char *)handoff_path;
-		else
-			argv[1] = bootpath;
+		argv[0] = filename;
+		argv[1] = bootpath;
 #ifdef DVRP
 	} else if (dvr_pfs_ix >= 0 && !strncmp(filename, dvr_pfs_name, 9)) {
 		if (0 > fileXioMount(dvr_pfs_name, party, FIO_MT_RDONLY)) {
-			//Some error occurred, it could be due to something else having used pfs0
-			unmountDVRPParty(dvr_pfs_ix);  //So we try unmounting pfs, to try again
+			unmountDVRPParty(dvr_pfs_ix);
 			if (0 > fileXioMount(dvr_pfs_name, party, FIO_MT_RDONLY))
-				return;  //If it still fails, we have to give up...
+				return;
 		}
 
-		//If a path to a file on PFS is specified, change it to the standard format.
-		//dvr_hdd0:partition:pfs:path/to/file
 		if (strncmp(filename, dvr_pfs_name, 9) == 0) {
 			sprintf(bootpath, "%s:pfs:%s", party, &filename[9]);
 		} else {
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
-			snprintf(exec_target, sizeof(exec_target), "%s", filename);
-
-		argv[0] = exec_target;
-		if ((handoff_path != NULL) && !strncmp(handoff_path, "dvr_hdd0:/", 10))
-			argv[1] = (char *)handoff_path;
-		else
-			argv[1] = bootpath;
+		argv[0] = filename;
+		argv[1] = bootpath;
 #endif
-	} else if (!strncmp(filename, "vmc", 3)) {
-		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
-			snprintf(exec_target, sizeof(exec_target), "%s", filename);
-		argv[0] = exec_target;
-		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
 	} else {
-		argv[0] = exec_target;
-		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
+		argv[0] = filename;
+		argv[1] = filename;
 	}
 
-	(void)exec_kind;
-	argc = ELFLOAD_BASE_ARGC - 1;
+	argc = 2;
+	argv[argc++] = (reboot_iop_elf_load) ? "-r" : "-nr";
+
 	if (LaunchArgsPending())
-		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - ELFLOAD_BASE_ARGC);
-	snprintf(loader_arg, sizeof(loader_arg), "%s", (reboot_iop_elf_load) ? "-la=AR" : "-la=A");
-	argv[argc++] = loader_arg;
+		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - argc);
 	LaunchArgsClear();
-	DPRINTF("RunLoaderElf: loader mode arg='%s' argc=%d\n", loader_arg, argc);
 
 	RunEmbeddedLoader(argc, argv);
 }
