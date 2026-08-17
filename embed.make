@@ -773,6 +773,9 @@ $(EE_ASM_DIR)ps2hdd_irx.s: $(PS2HDD_OSD_SOURCE) | $(EE_ASM_DIR)
 
 $(EE_ASM_DIR)ps2fs_irx.s: $(PS2SDK)/iop/irx/ps2fs.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2fs_irx
+
+$(EE_ASM_DIR)fakehost_irx.s: $(PS2SDK)/iop/irx/fakehost.irx | $(EE_ASM_DIR)
+	$(BIN2S) $< $@ fakehost_irx
 	
 ifeq ($(DVRP),1)
 $(EE_ASM_DIR)ps2atad_irx.s: $(PS2SDK)/iop/irx/ps2atad.irx | $(EE_ASM_DIR)
