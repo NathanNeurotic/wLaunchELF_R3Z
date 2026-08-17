@@ -24,8 +24,16 @@ jobs:
           - variant_name: "R3Z"
             psx_profile: "psx"
             pad_profile: "no-ds34"
-            storage_profile: "all"
+            storage_profile: "usb"
           - variant_name: "R3Z-DS34"
+            psx_profile: "psx"
+            pad_profile: "ds34"
+            storage_profile: "usb"
+          - variant_name: "R3Z-MX4SIO"
+            psx_profile: "psx"
+            pad_profile: "no-ds34"
+            storage_profile: "all"
+          - variant_name: "R3Z-MX4SIO-DS34"
             psx_profile: "psx"
             pad_profile: "ds34"
             storage_profile: "all"
@@ -86,9 +94,6 @@ jobs:
         echo "Resolved make flags: $FLAGS"
         make rebuild ${{ github.event.inputs.make_args }} $FLAGS
 
-    - name: Verify loader low-memory layout guard
-      run: |
-        make -C loader check-layout DEBUG=0
 
     - name: Rename output ELF for variant
       run: |

@@ -552,10 +552,9 @@ void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop)
 
 	RunEmbeddedLoader(MEMLOAD_ARGC, argv);
 }
-//--------------------------------------------------------------
-//End of func:  void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop)
-//--------------------------------------------------------------
-#ifdef XFROM
+#define STAGE_PAYLOAD_ADDR 0x01800000
+#define STAGE_PAYLOAD_MAX_SIZE (8 * 1024 * 1024)
+
 static int isElfPayload(const u8 *payload, int payload_size)
 {
 	const Elf32_Ehdr *eh;
@@ -569,11 +568,84 @@ static int isElfPayload(const u8 *payload, int payload_size)
 	        eh->e_machine == EM_MIPS);
 }
 
+#ifdef XFROM
 static int isLikelyEncryptedPayload(const u8 *payload, int payload_size)
 {
 	return (payload != NULL && payload_size >= 4 && payload[0] == 0x01 && payload[2] == 0x00);
 }
+#endif
 
+static int StageExecutablePayload(const char *open_path, char *mem_arg, size_t mem_arg_size)
+{
+	u8 *payload;
+	u8 *launch_payload;
+	s64 payload_size64;
+	int payload_size;
+	int fd, total, rd;
+#ifdef XFROM
+	int encrypted_payload;
+#endif
+
+	if (open_path == NULL || mem_arg == NULL || mem_arg_size < 22)
+		return -1;
+
+	fd = genOpen((char *)open_path, FIO_O_RDONLY);
+	if (fd < 0)
+		return -1;
+
+	payload_size64 = genLseek(fd, 0, SEEK_END);
+	if (payload_size64 <= 0 || payload_size64 > (s64)STAGE_PAYLOAD_MAX_SIZE) {
+		genClose(fd);
+		return -1;
+	}
+	if (genLseek(fd, 0, SEEK_SET) < 0) {
+		genClose(fd);
+		return -1;
+	}
+
+	payload_size = (int)payload_size64;
+	payload = (u8 *)STAGE_PAYLOAD_ADDR;
+	total = 0;
+	while (total < payload_size) {
+		rd = genRead(fd, payload + total, payload_size - total);
+		if (rd <= 0)
+			break;
+		total += rd;
+	}
+	genClose(fd);
+
+	if (total != payload_size)
+		return -1;
+
+	launch_payload = payload;
+#ifdef XFROM
+	encrypted_payload = isLikelyEncryptedPayload(payload, payload_size);
+	if (!isElfPayload(payload, payload_size) && encrypted_payload) {
+		void *decrypted_payload;
+
+		if (!loadSecrSifModule())
+			return -1;
+
+		if (!SecrInit())
+			return -1;
+		decrypted_payload = SecrDiskBootFile(payload);
+		SecrDeinit();
+
+		if (decrypted_payload == NULL)
+			return -1;
+
+		launch_payload = (u8 *)decrypted_payload;
+		if (launch_payload < payload || launch_payload >= payload + payload_size)
+			return -1;
+		payload_size -= (int)(launch_payload - payload);
+	}
+#endif
+
+	snprintf(mem_arg, mem_arg_size, "mem:%08X:%08X", (u32)launch_payload, (u32)payload_size);
+	return 0;
+}
+
+#ifdef XFROM
 static int getMbrOpenPath(const char *path, char *open_path, size_t open_path_size)
 {
 	const char *pfs;
@@ -619,13 +691,6 @@ static int getMbrOpenPath(const char *path, char *open_path, size_t open_path_si
 int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size)
 {
 	char open_path[MAX_PATH];
-	u8 *payload;
-	u8 *launch_payload;
-	s64 payload_size64;
-	u32 ee_mem_end;
-	int payload_size;
-	int encrypted_payload;
-	int fd, total, rd;
 
 	if (path == NULL || mem_arg == NULL || mem_arg_size < 22)
 		return -1;
@@ -633,62 +698,8 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 	if (getMbrOpenPath(path, open_path, sizeof(open_path)) < 0)
 		return -1;
 
-	fd = genOpen(open_path, FIO_O_RDONLY);
-	if (fd < 0)
-		return -1;
-
-	ee_mem_end = GetMemorySize();
-	payload_size64 = genLseek(fd, 0, SEEK_END);
-	if (ee_mem_end <= MBR_PAYLOAD_LOAD_ADDR ||
-	    payload_size64 <= 0 ||
-	    payload_size64 > (s64)(ee_mem_end - MBR_PAYLOAD_LOAD_ADDR)) {
-		genClose(fd);
-		return -1;
-	}
-	genLseek(fd, 0, SEEK_SET);
-
-	payload = (u8 *)MBR_PAYLOAD_LOAD_ADDR;
-	payload_size = (int)payload_size64;
-	total = 0;
-	while (total < payload_size) {
-		rd = genRead(fd, payload + total, payload_size - total);
-		if (rd <= 0)
-			break;
-		total += rd;
-	}
-	genClose(fd);
-
-	if (total != payload_size)
-		return -1;
-
-	launch_payload = payload;
-	encrypted_payload = isLikelyEncryptedPayload(payload, payload_size);
-	if (!isElfPayload(payload, payload_size) && encrypted_payload) {
-		void *decrypted_payload;
-
-		if (!loadSecrSifModule())
-			return -1;
-
-		if (!SecrInit())
-			return -1;
-		decrypted_payload = SecrDiskBootFile(payload);
-		SecrDeinit();
-
-		if (decrypted_payload == NULL)
-			return -1;
-
-		launch_payload = (u8 *)decrypted_payload;
-		if (launch_payload < payload || launch_payload >= payload + payload_size)
-			return -1;
-		payload_size -= (int)(launch_payload - payload);
-	}
-
-	snprintf(mem_arg, mem_arg_size, "mem:%08X:%08X", (u32)launch_payload, (u32)payload_size);
-	return 0;
+	return StageExecutablePayload(open_path, mem_arg, mem_arg_size);
 }
-//--------------------------------------------------------------
-//End of func:  int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size)
-//--------------------------------------------------------------
 #endif
 //--------------------------------------------------------------
 // RunLoaderElf loads LOADER.ELF from program memory and passes
@@ -699,88 +710,67 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)
 {
 	char *argv[ELFLOAD_MAX_ARGC], bootpath[256];
-	static char exec_target[MAX_PATH];
-	static char exec_arg0[MAX_PATH];
-	static char loader_arg[8];
-	const char *handoff_path = NULL;
 	int argc;
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
-	char dvr_pfs_name[10] = "dvr_pfs0:";
+	char dvr_pfs_name[10];
 #endif
 
-	if (selected_path != NULL && selected_path[0] != '\0')
-		handoff_path = normalizeExecArg0Path(selected_path, exec_arg0, sizeof(exec_arg0));
-	snprintf(exec_target, sizeof(exec_target), "%s", filename);
-	if (exec_kind == 1 && handoff_path != NULL && !strncmp(handoff_path, "mass", 4))
-		snprintf(exec_target, sizeof(exec_target), "%s", handoff_path);
-	DPRINTF("RunLoaderElf: exec_kind=%d reboot_iop=%d target='%s' handoff='%s' party='%s'\n",
-	        exec_kind, reboot_iop_elf_load, filename,
-	        (handoff_path != NULL) ? handoff_path : "",
-	        (party != NULL) ? party : "");
-	DPRINTF("RunLoaderElf: loader target='%s'\n", exec_target);
+	(void)selected_path;
+	(void)exec_kind;
+
 #ifdef DVRP
-	dvr_pfs_ix = (party != NULL) ? getDVRPPartyMountIndex(party) : -1;
+	dvr_pfs_ix = getDVRPPartyMountIndex(party);
+	strcpy(dvr_pfs_name, "dvr_pfs0:");
 	if (dvr_pfs_ix >= 0)
 		dvr_pfs_name[7] = '0' + dvr_pfs_ix;
 #endif
 
 	if (isHddPartyPath(party) && (!strncmp(filename, "pfs0:", 5))) {
 		if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY)) {
-			//Some error occurred, it could be due to something else having used pfs0
-			unmountParty(0);  //So we try unmounting pfs0, to try again
+			// Some error occurred, it could be due to something else having used pfs0
+			unmountParty(0);  // So we try unmounting pfs0, to try again
 			if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY))
-				return;  //If it still fails, we have to give up...
+				return;  // If it still fails, we have to give up...
 		}
 
-		//If a path to a file on PFS is specified, change it to the standard format.
-		//hddN:partition:pfs:path/to/file
+		// hddN:partition:pfs:path/to/file
 		if (strncmp(filename, "pfs0:", 5) == 0) {
 			sprintf(bootpath, "%s:pfs:%s", party, &filename[5]);
 		} else {
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		argv[0] = exec_target;
-		if (isExplicitHddHandoffPath(handoff_path))
-			argv[1] = (char *)handoff_path;
-		else
-			argv[1] = bootpath;
+		argv[0] = filename;
+		argv[1] = bootpath;
 #ifdef DVRP
 	} else if (dvr_pfs_ix >= 0 && !strncmp(filename, dvr_pfs_name, 9)) {
 		if (0 > fileXioMount(dvr_pfs_name, party, FIO_MT_RDONLY)) {
-			//Some error occurred, it could be due to something else having used pfs0
-			unmountDVRPParty(dvr_pfs_ix);  //So we try unmounting pfs, to try again
+			unmountDVRPParty(dvr_pfs_ix);
 			if (0 > fileXioMount(dvr_pfs_name, party, FIO_MT_RDONLY))
-				return;  //If it still fails, we have to give up...
+				return;
 		}
 
-		//If a path to a file on PFS is specified, change it to the standard format.
-		//dvr_hdd0:partition:pfs:path/to/file
 		if (strncmp(filename, dvr_pfs_name, 9) == 0) {
 			sprintf(bootpath, "%s:pfs:%s", party, &filename[9]);
 		} else {
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
-		argv[0] = exec_target;
-		if ((handoff_path != NULL) && !strncmp(handoff_path, "dvr_hdd0:/", 10))
-			argv[1] = (char *)handoff_path;
-		else
-			argv[1] = bootpath;
+
+		argv[0] = filename;
+		argv[1] = bootpath;
 #endif
 	} else {
-		argv[0] = exec_target;
-		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
+		argv[0] = filename;
+		argv[1] = filename;
 	}
 
-	(void)exec_kind;
-	argc = ELFLOAD_BASE_ARGC - 1;
+	argc = 2;
+	argv[argc++] = (reboot_iop_elf_load) ? "-r" : "-nr";
+
 	if (LaunchArgsPending())
-		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - ELFLOAD_BASE_ARGC);
-	snprintf(loader_arg, sizeof(loader_arg), "%s", (reboot_iop_elf_load) ? "-la=AR" : "-la=A");
-	argv[argc++] = loader_arg;
+		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - argc);
 	LaunchArgsClear();
-	DPRINTF("RunLoaderElf: loader mode arg='%s' argc=%d\n", loader_arg, argc);
 
 	RunEmbeddedLoader(argc, argv);
 }

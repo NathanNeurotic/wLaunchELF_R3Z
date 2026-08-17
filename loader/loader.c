@@ -1,33 +1,58 @@
 //--------------------------------------------------------------
 // File name: loader.c
 //--------------------------------------------------------------
-// Reduced embedded loader for wLaunchELF R3Z.
-// Based on the OSDMenu embeddable loader design, with wLE-specific
-// argv handoff and without GSM, PATINFO, DEV9, title ID, or CNF support.
-
 #include "tamtypes.h"
+#include "debug.h"
 #include "kernel.h"
 #include "iopcontrol.h"
 #include "sifrpc.h"
 #include "loadfile.h"
 #include "string.h"
+#include "iopheap.h"
 #include "errno.h"
-#include <elf.h>
 
 #define USER_MEM_START_ADDR 0x100000
 
-void _libcglue_init(void)
+#define MAX_LOADER_ARGS 16
+#define MAX_LOADER_ARG_LEN 256
+
+static char saved_target[MAX_LOADER_ARG_LEN];
+static char saved_path[MAX_LOADER_ARG_LEN];
+static char saved_extra_args[MAX_LOADER_ARGS][MAX_LOADER_ARG_LEN];
+static char *exec_argv[MAX_LOADER_ARGS];
+static int exec_argc;
+
+
+static void wipeUserMem(void)
 {
+	int i;
+	for (i = 0x100000; i < GetMemorySize(); i += 64) {
+		asm volatile(
+		    "\tsq $0, 0(%0) \n"
+		    "\tsq $0, 16(%0) \n"
+		    "\tsq $0, 32(%0) \n"
+		    "\tsq $0, 48(%0) \n" ::"r"(i));
+	}
 }
 
-void _libcglue_deinit(void)
+static void wipeUserMemPreserving(u32 preserve_addr, u32 preserve_size)
 {
-}
+	u32 end, preserve_end;
 
-void _libcglue_args_parse(int argc, char **argv)
-{
-	(void)argc;
-	(void)argv;
+	end = GetMemorySize();
+	if (preserve_addr < USER_MEM_START_ADDR || preserve_addr >= end || preserve_size == 0) {
+		wipeUserMem();
+		return;
+	}
+
+	preserve_end = preserve_addr + preserve_size;
+	if (preserve_end < preserve_addr || preserve_end > end)
+		preserve_end = end;
+
+	if (preserve_addr > USER_MEM_START_ADDR)
+		memset((void *)USER_MEM_START_ADDR, 0, preserve_addr - USER_MEM_START_ADDR);
+	if (preserve_end < end)
+		memset((void *)preserve_end, 0, end - preserve_end);
 }
 
 static int parseHex8(const char *text, u32 *value)
@@ -72,200 +97,110 @@ static int parseMemPath(const char *path, u32 *addr, u32 *size)
 	return 0;
 }
 
-static void clearUserMem(void)
-{
-	u32 addr, end;
-
-	end = GetMemorySize();
-	for (addr = USER_MEM_START_ADDR; addr < end; addr += 64) {
-		asm volatile(
-		    "\tsq $0, 0(%0) \n"
-		    "\tsq $0, 16(%0) \n"
-		    "\tsq $0, 32(%0) \n"
-		    "\tsq $0, 48(%0) \n" ::"r"(addr));
-	}
-}
-
-static void clearUserMemPreserving(u32 preserve_addr, u32 preserve_size)
-{
-	u32 end, preserve_end;
-
-	end = GetMemorySize();
-	if (preserve_addr < USER_MEM_START_ADDR || preserve_addr >= end || preserve_size == 0) {
-		clearUserMem();
-		return;
-	}
-
-	preserve_end = preserve_addr + preserve_size;
-	if (preserve_end < preserve_addr || preserve_end > end)
-		preserve_end = end;
-
-	if (preserve_addr > USER_MEM_START_ADDR)
-		memset((void *)USER_MEM_START_ADDR, 0, preserve_addr - USER_MEM_START_ADDR);
-	if (preserve_end < end)
-		memset((void *)preserve_end, 0, end - preserve_end);
-}
-
-static int loadELFImage(u32 elf_addr, u32 *entry)
-{
-	Elf32_Ehdr *eh;
-	Elf32_Phdr *ph;
-	void *src;
-	int i;
-
-	if (entry == NULL)
-		return -EINVAL;
-
-	eh = (Elf32_Ehdr *)elf_addr;
-	if (memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0)
-		return -ENOEXEC;
-	if ((eh->e_type != ET_EXEC) && (eh->e_type != ET_DYN))
-		return -ENOEXEC;
-	if (eh->e_machine != EM_MIPS)
-		return -ENOEXEC;
-	if (eh->e_entry == 0 || (eh->e_entry & 0x3) != 0)
-		return -ENOEXEC;
-
-	ph = (Elf32_Phdr *)(elf_addr + eh->e_phoff);
-	for (i = 0; i < eh->e_phnum; i++) {
-		if (ph[i].p_type != PT_LOAD)
-			continue;
-
-		src = (void *)(elf_addr + ph[i].p_offset);
-		memcpy((void *)ph[i].p_vaddr, src, ph[i].p_filesz);
-		if (ph[i].p_memsz > ph[i].p_filesz)
-			memset((void *)(ph[i].p_vaddr + ph[i].p_filesz), 0, ph[i].p_memsz - ph[i].p_filesz);
-	}
-
-	*entry = eh->e_entry;
-	FlushCache(0);
-	FlushCache(2);
-	return 0;
-}
-
-static void resetIOP(void)
-{
-	while (!SifIopReset("", 0)) {
-	}
-	while (!SifIopSync()) {
-	}
-	SifInitRpc(0);
-}
-
-static int loadEmbeddedPayload(char *elf_path, int argc, char *argv[], int reset_iop)
-{
-	u32 elf_addr, elf_size, entry;
-	int ret;
-
-	ret = parseMemPath(elf_path, &elf_addr, &elf_size);
-	if (ret < 0)
-		return ret;
-	if (elf_addr < USER_MEM_START_ADDR || elf_size == 0)
-		return -EINVAL;
-
-	clearUserMemPreserving(elf_addr, elf_size);
-
-	if (reset_iop)
-		resetIOP();
-
-	ret = loadELFImage(elf_addr, &entry);
-	if (ret < 0) {
-		entry = USER_MEM_START_ADDR;
-		memcpy((void *)entry, (void *)elf_addr, elf_size);
-		FlushCache(0);
-		FlushCache(2);
-	}
-
-	SifExitRpc();
-	ExecPS2((void *)entry, NULL, argc, argv);
-	return 0;
-}
-
-static int loadFilePayload(char *elf_path, int argc, char *argv[], int reset_iop)
+int main(int argc, char *argv[])
 {
 	static t_ExecData elfdata;
-	int ret;
+	int ret, rebootiop = 0;
+	int i;
 
-	clearUserMem();
+	// Initialize SIF RPC
+	SifInitRpc(0);
+
+	if (argc < 1) {
+		SifExitRpc();
+		return -EINVAL;
+	}
+
+	// Copy incoming arguments safely into resident loader BSS
+	saved_target[0] = '\0';
+	saved_path[0] = '\0';
+
+	if (argv[0] != NULL) {
+		strncpy(saved_target, argv[0], sizeof(saved_target) - 1);
+		saved_target[sizeof(saved_target) - 1] = '\0';
+	}
+	if (argc > 1 && argv[1] != NULL) {
+		strncpy(saved_path, argv[1], sizeof(saved_path) - 1);
+		saved_path[sizeof(saved_path) - 1] = '\0';
+	} else {
+		strncpy(saved_path, saved_target, sizeof(saved_path) - 1);
+		saved_path[sizeof(saved_path) - 1] = '\0';
+	}
+
+	// Check for reboot IOP flags: "-r" or "-la=...R..."
+	for (i = 2; i < argc; i++) {
+		if (argv[i] != NULL) {
+			if (!strcmp("-r", argv[i])) {
+				rebootiop = 1;
+			} else if (!strncmp(argv[i], "-la=", 4)) {
+				if (strchr(argv[i] + 4, 'R') != NULL)
+					rebootiop = 1;
+			}
+		}
+	}
+
+	// Prepare outbound argv for the child ELF:
+	// args[0] = bootpath (e.g. "hdd0:__system:pfs:path/to/elf" or "mc0:...")
+	exec_argc = 0;
+	exec_argv[exec_argc++] = saved_path;
+
+	// Copy any additional arguments
+	for (i = 2; i < argc && exec_argc < MAX_LOADER_ARGS; i++) {
+		if (argv[i] != NULL && strcmp(argv[i], "-r") != 0 && strcmp(argv[i], "-nr") != 0 && strncmp(argv[i], "-la=", 4) != 0) {
+			strncpy(saved_extra_args[exec_argc], argv[i], MAX_LOADER_ARG_LEN - 1);
+			saved_extra_args[exec_argc][MAX_LOADER_ARG_LEN - 1] = '\0';
+			exec_argv[exec_argc] = saved_extra_args[exec_argc];
+			exec_argc++;
+		}
+	}
+
+	// Branch 1: Memory Staged Payload (mem:ADDR:SIZE) for MBR/XFROM
+	if (!strncmp(saved_target, "mem:", 4)) {
+		u32 elf_addr = 0, elf_size = 0;
+		if (parseMemPath(saved_target, &elf_addr, &elf_size) < 0 || elf_addr < USER_MEM_START_ADDR || elf_size == 0) {
+			SifExitRpc();
+			return -EINVAL;
+		}
+
+		wipeUserMemPreserving(elf_addr, elf_size);
+
+		if (rebootiop) {
+			while (!SifIopReset("", 0));
+			while (!SifIopSync());
+		}
+
+		memcpy((void *)USER_MEM_START_ADDR, (void *)elf_addr, elf_size);
+		SifExitRpc();
+		FlushCache(0);
+		FlushCache(2);
+		ExecPS2((void *)USER_MEM_START_ADDR, NULL, exec_argc, exec_argv);
+		return 0;
+	}
+
+	// Branch 2: Standard ELF Loading via SifLoadElf (from PFS / MC / USB / host / CDVD / ROM)
+	wipeUserMem();
 	FlushCache(0);
 
 	memset(&elfdata, 0, sizeof(elfdata));
 	SifLoadFileInit();
-	ret = SifLoadElf(elf_path, &elfdata);
+	ret = SifLoadElf(saved_target, &elfdata);
 	if (ret != 0 || elfdata.epc == 0)
-		ret = SifLoadElfEncrypted(elf_path, &elfdata);
+		ret = SifLoadElfEncrypted(saved_target, &elfdata);
 	SifLoadFileExit();
 
-	if (ret != 0 || elfdata.epc == 0 || (elfdata.epc & 0x3) != 0)
-		return -ENOENT;
-
-	FlushCache(0);
-	FlushCache(2);
-
-	if (reset_iop)
-		resetIOP();
-
-	SifExitRpc();
-	ExecPS2((void *)elfdata.epc, (void *)elfdata.gp, argc, argv);
-	return 0;
-}
-
-int main(int argc, char *argv[])
-{
-	char *elf_path;
-	int reset_iop, skip_argv0;
-
-	if (argc < 1)
-		return -EINVAL;
-
-	SifInitRpc(0);
-
-	elf_path = NULL;
-	reset_iop = 0;
-	skip_argv0 = 0;
-
-	if (argc > 0 && !strncmp(argv[argc - 1], "-la=", 4)) {
-		char *flags;
-		int i;
-
-		flags = argv[argc - 1] + 4;
-		for (i = 0; flags[i] != '\0'; i++) {
-			switch (flags[i]) {
-			case 'R':
-				reset_iop = 1;
-				break;
-			case 'E':
-				if (argc < 2)
-					return -EINVAL;
-				elf_path = argv[argc - 2];
-				argc--;
-				break;
-			case 'A':
-				skip_argv0 = 1;
-				break;
-			default:
-				break;
-			}
+	if (ret == 0 && elfdata.epc != 0 && (elfdata.epc & 0x3) == 0) {
+		if (rebootiop) {
+			while (!SifIopReset("", 0));
+			while (!SifIopSync());
 		}
-		argc--;
+
+		SifExitRpc();
+		FlushCache(0);
+		FlushCache(2);
+		ExecPS2((void *)elfdata.epc, (void *)elfdata.gp, exec_argc, exec_argv);
+		return 0;
+	} else {
+		SifExitRpc();
+		return -ENOENT;
 	}
-
-	if (elf_path == NULL)
-		elf_path = argv[0];
-
-	if (skip_argv0) {
-		if (argc < 1)
-			return -EINVAL;
-		argc--;
-		argv = &argv[1];
-	}
-
-	if (!strncmp(elf_path, "mem:", 4))
-		return loadEmbeddedPayload(elf_path, argc, argv, reset_iop);
-
-	return loadFilePayload(elf_path, argc, argv, reset_iop);
 }
-
-//--------------------------------------------------------------
-// End of file: loader.c
-//--------------------------------------------------------------
