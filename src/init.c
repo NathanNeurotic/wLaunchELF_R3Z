@@ -220,7 +220,7 @@ static void stopUsbMassForPoweroff(void);
 #ifdef ETH
 static void load_ps2ip(void);
 #endif
-static int load_ps2hdd_stack(int with_ata_bd);
+static int load_ps2hdd_stack(void);
 static void showLoadingModulesMsg(const char *device_name);
 static void showRebootingIopMsg(void);
 #ifdef ETH
@@ -259,7 +259,6 @@ static int loadAtaBlockDriver(void);
 static void pauseAfterAtaBlockDriverLoad(void);
 #endif
 #ifdef DVRP
-static int load_ps2atad_stack(void);
 static void switchPsxHddDriverStack(int use_dvr_stack);
 #endif
 #ifdef DS34
@@ -431,10 +430,9 @@ static void load_ps2ip(void)
 //------------------------------
 //endfunc load_ps2ip
 //---------------------------------------------------------------------------
-static int load_ps2hdd_stack(int with_ata_bd)
+static int load_ps2hdd_stack(void)
 {
 	int ret, ID __attribute__((unused));
-	int dev9_ready = 0;
 	static char hddarg[] = "-o"
 	                       "\0"
 	                       "4"
@@ -455,73 +453,9 @@ static int load_ps2hdd_stack(int with_ata_bd)
 	                       "\0"
 	                       "40";
 
-#ifdef EXFAT
-	/*
-	 * Match nhddl-rewrite stack ordering:
-	 * BDM -> BDMFS -> DEV9 -> ATA_BD -> short pause -> PS2HDD/PS2FS.
-	 */
-	if (with_ata_bd && !loadAtaBlockDriver()) {
-		DPRINTF(" [HDD]: skipping HDD/FS load because ATA_BD stack did not initialize\n");
-		return 0;
-	}
-	if (with_ata_bd)
-		dev9_ready = ps2dev9_loaded;
-#endif
-#ifndef EXFAT
-	(void)with_ata_bd;
-#endif
-	if (!dev9_ready) {
-		load_ps2dev9();
-		if (!ps2dev9_loaded) {
-			DPRINTF(" [HDD]: skipping HDD/FS load because DEV9 failed to initialize\n");
-			return 0;
-		}
-	}
-
-	if (!have_ps2hdd) {
-		ID = SifExecModuleBuffer(ps2hdd_irx, size_ps2hdd_irx, sizeof(hddarg), hddarg, &ret);
-		DPRINTF(" [PS2HDD]: ID=%d, ret=%d\n", ID, ret);
-		have_ps2hdd = (ID >= 0 && ret >= 0);
-	}
-	if (have_ps2hdd && !have_ps2fs) {
-		ID = SifExecModuleBuffer(ps2fs_irx, size_ps2fs_irx, sizeof(pfsarg), pfsarg, &ret);
-		DPRINTF(" [PS2FS]: ID=%d, ret=%d\n", ID, ret);
-		have_ps2fs = (ID >= 0 && ret >= 0);
-	}
-	if (have_ps2hdd && have_ps2fs)
-		prepareDev9Poweroff();
-
-	return (have_ps2hdd && have_ps2fs);
-}
-//------------------------------
-//endfunc load_ps2hdd_stack
-//---------------------------------------------------------------------------
-#ifdef DVRP
-static int load_ps2atad_stack(void)
-{
-	int ret, ID __attribute__((unused));
-	static char hddarg[] = "-o"
-	                       "\0"
-	                       "4"
-	                       "\0"
-	                       "-n"
-	                       "\0"
-	                       "20";
-	static char pfsarg[] = "-m"
-	                       "\0"
-	                       "4"
-	                       "\0"
-	                       "-o"
-	                       "\0"
-	                       "10"
-	                       "\0"
-	                       "-n"
-	                       "\0"
-	                       "40";
-
 	load_ps2dev9();
 	if (!ps2dev9_loaded) {
-		DPRINTF(" [ATAD]: skipping load because DEV9 failed to initialize\n");
+		DPRINTF(" [HDD]: skipping HDD/FS load because DEV9 failed to initialize\n");
 		return 0;
 	}
 
@@ -549,9 +483,8 @@ static int load_ps2atad_stack(void)
 	return (have_ps2hdd && have_ps2fs);
 }
 //------------------------------
-//endfunc load_ps2atad_stack
+//endfunc load_ps2hdd_stack
 //---------------------------------------------------------------------------
-#endif
 IMPORT_BIN2C(secrsif_irx);
 IMPORT_BIN2C(exploit_ioprp_img);
 int loadSecrSifModule(void)
@@ -752,7 +685,7 @@ static void load_ps2dvr(void)
 	if (!have_dvrdrv || !have_dvrfile || !have_ps2hdd || !have_ps2fs)
 		showLoadingModulesMsg("dvr");
 
-	if (!load_ps2hdd_stack(1)) {
+	if (!load_ps2hdd_stack()) {
 		DPRINTF(" [DVR]: skipping load because HDD stack failed to initialize\n");
 		return;
 	}
@@ -1459,16 +1392,6 @@ static void switchBlockStorageStack(int target_mode)
 	if ((block_storage_stack_mode & target_mode) == target_mode)
 		return;
 
-#ifdef EXFAT
-	/*
-	 * ATA_BD + APA stack can coexist in one IOP session.
-	 * Only force a reset for genuinely incompatible future stacks.
-	 */
-	if ((block_storage_stack_mode | target_mode) == (BLOCK_STACK_HDD | BLOCK_STACK_ATA)) {
-		return;
-	}
-#endif
-
 	if (block_storage_stack_mode != BLOCK_STACK_NONE) {
 		DPRINTF("Switching block storage stack (%d -> %d), resetting IOP\n", block_storage_stack_mode, target_mode);
 		resetRuntimeDeviceState(TRUE);
@@ -1730,7 +1653,7 @@ int loadHddModules(void)
 	if (!have_HDD_modules) {
 		showLoadingModulesMsg("hdd");
 		setupPowerOff();
-		load_ps2hdd_stack(1);  //also loads ps2hdd & ps2fs
+		load_ps2hdd_stack();  //loads dev9, ps2atad, ps2hdd & ps2fs
 		have_HDD_modules = (have_ps2hdd && have_ps2fs);
 		if (!have_HDD_modules) {
 			DPRINTF(" [HDD]: stack incomplete (HDD=%d FS=%d)\n",
