@@ -23,30 +23,14 @@ EE_LDFLAGS := -L$(PS2SDK)/ee/lib $(EE_LDFLAGS)
 # Assembler flags
 EE_ASFLAGS := -G0 $(EE_ASFLAGS)
 
-# Link with standard C library and kernel
+# Link with standard libraries
 EE_KERNEL_LIB := -lkernel-nopatch
 ifeq ($(wildcard $(PS2SDK)/ee/lib/libkernel-nopatch.a),)
 EE_KERNEL_LIB := -lkernel
 endif
 EE_LIBS += -lc $(EE_KERNEL_LIB)
 
-# These macros can be used to simplify certain build rules.
-EE_C_COMPILE = $(EE_CC) $(EE_CFLAGS) $(EE_INCS)
-EE_CXX_COMPILE = $(EE_CXX) $(EE_CXXFLAGS) $(EE_INCS)
-
-# Extra macro for disabling the automatic inclusion of the built-in CRT object(s)
-ifeq ($(EE_CC_VERSION),3.2.2)
-	EE_NO_CRT = -mno-crt0
-else ifeq ($(EE_CC_VERSION),3.2.3)
-	EE_NO_CRT = -mno-crt0
-else
-	EE_NO_CRT = -nostartfiles
-	CRTBEGIN_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crtbegin.o)
-	CRTEND_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crtend.o)
-	CRTI_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crti.o)
-	CRTN_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crtn.o)
-endif
-
+# Compilation rules
 %.o: %.c
 	$(EE_CC) $(EE_CFLAGS) $(EE_INCS) -c $< -o $@
 
@@ -62,22 +46,11 @@ endif
 %.o: %.s
 	$(EE_AS) $(EE_ASFLAGS) $< -o $@
 
-CRT0_OBJ := $(PS2SDK)/ee/startup/crt0.o
-ifeq ($(wildcard $(CRT0_OBJ)),)
-CRT0_OBJ := $(PS2SDK)/ee/startup/src/crt0.o
-endif
-
-STARTUP_LINKFILE := $(PS2SDK)/ee/startup/linkfile
-ifeq ($(wildcard $(STARTUP_LINKFILE)),)
-STARTUP_LINKFILE := $(PS2SDK)/ee/startup/src/linkfile
-endif
-
 $(EE_BIN): $(EE_OBJS)
-	$(EE_CC) $(EE_NO_CRT) -T$(STARTUP_LINKFILE) $(EE_CFLAGS) \
-		-o $(EE_BIN) $(CRT0_OBJ) $(CRTI_OBJ) $(CRTBEGIN_OBJ) $(EE_OBJS) $(CRTEND_OBJ) $(CRTN_OBJ) $(EE_LDFLAGS) $(EE_LIBS)
+	$(EE_CC) $(EE_CFLAGS) -o $(EE_BIN) $(EE_OBJS) $(EE_LDFLAGS) $(EE_LIBS)
 
 $(EE_ERL): $(EE_OBJS)
-	$(EE_CC) $(EE_NO_CRT) -o $(EE_ERL) $(EE_OBJS) $(EE_CFLAGS) $(EE_LDFLAGS) -Wl,-r -Wl,-d
+	$(EE_CC) -o $(EE_ERL) $(EE_OBJS) $(EE_CFLAGS) $(EE_LDFLAGS) -Wl,-r -Wl,-d
 	$(EE_STRIP) --strip-unneeded -R .mdebug.eabi64 -R .reginfo -R .comment $(EE_ERL)
 
 $(EE_LIB): $(EE_OBJS)
