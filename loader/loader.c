@@ -24,6 +24,7 @@
 
 #define MAX_LOADER_ARGS 16
 #define MAX_LOADER_ARG_LEN 256
+#define MAX_ELF_PHDRS 32
 
 #define ELF_MAGIC 0x464C457F
 
@@ -63,6 +64,9 @@ static char saved_extra_args[MAX_LOADER_ARGS][MAX_LOADER_ARG_LEN];
 static char *exec_argv[MAX_LOADER_ARGS];
 static int exec_argc;
 
+static elf_header_t eh;
+static elf_pheader_t eph[MAX_ELF_PHDRS];
+
 static t_ExecData elfdata;
 
 static void wipeUserMem(void)
@@ -80,10 +84,7 @@ static void wipeUserMem(void)
 
 static int tLoadElf(const char *filename)
 {
-	u8 *boot_elf = (u8 *)0x01800000;
-	elf_header_t *eh = (elf_header_t *)boot_elf;
-	elf_pheader_t *eph;
-	int fd, size, i;
+	int fd, size, i, ph_count;
 
 	fileXioInit();
 
@@ -98,25 +99,25 @@ static int tLoadElf(const char *filename)
 	}
 
 	fileXioLseek(fd, 0, SEEK_SET);
-	if (fileXioRead(fd, boot_elf, sizeof(elf_header_t)) != sizeof(elf_header_t)) {
+	if (fileXioRead(fd, &eh, sizeof(elf_header_t)) != sizeof(elf_header_t)) {
 		fileXioClose(fd);
 		return -1;
 	}
 
-	if (*(u32 *)&eh->ident != ELF_MAGIC) {
+	if (*(u32 *)&eh.ident != ELF_MAGIC) {
 		fileXioClose(fd);
 		return -1;
 	}
 
-	fileXioLseek(fd, eh->phoff, SEEK_SET);
-	eph = (elf_pheader_t *)(boot_elf + sizeof(elf_header_t));
-	size = eh->phnum * eh->phentsize;
+	ph_count = (eh.phnum > MAX_ELF_PHDRS) ? MAX_ELF_PHDRS : eh.phnum;
+	fileXioLseek(fd, eh.phoff, SEEK_SET);
+	size = ph_count * eh.phentsize;
 	if (fileXioRead(fd, eph, size) != size) {
 		fileXioClose(fd);
 		return -1;
 	}
 
-	for (i = 0; i < eh->phnum; i++) {
+	for (i = 0; i < ph_count; i++) {
 		if (eph[i].type != ELF_PT_LOAD)
 			continue;
 
@@ -131,7 +132,7 @@ static int tLoadElf(const char *filename)
 
 	fileXioClose(fd);
 
-	elfdata.epc = eh->entry;
+	elfdata.epc = eh.entry;
 	elfdata.gp = 0;
 	return 0;
 }
@@ -161,20 +162,11 @@ int main(int argc, char *argv[])
 	int ret, rebootiop = 0;
 	int i;
 
-	// Initialize SIF RPC
-	SifInitRpc(0);
-	wipeUserMem();
-
-	if (argc < 1) {
-		SifExitRpc();
-		return -EINVAL;
-	}
-
-	// Copy incoming arguments safely into resident loader BSS
+	// Copy incoming arguments safely into resident loader BSS FIRST before touching user memory!
 	saved_target[0] = '\0';
 	saved_path[0] = '\0';
 
-	if (argv[0] != NULL) {
+	if (argc > 0 && argv[0] != NULL) {
 		strncpy(saved_target, argv[0], sizeof(saved_target) - 1);
 		saved_target[sizeof(saved_target) - 1] = '\0';
 	}
@@ -191,7 +183,6 @@ int main(int argc, char *argv[])
 	}
 
 	// Prepare outbound argv for child ELF:
-	// exec_argv[0] = saved_path (e.g. "hdd0:__system:pfs:path/to/BOOT.ELF" or "mc0:...")
 	exec_argc = 0;
 	exec_argv[exec_argc++] = saved_path;
 
@@ -204,6 +195,10 @@ int main(int argc, char *argv[])
 			exec_argc++;
 		}
 	}
+
+	// Initialize SIF RPC and wipe user RAM now that arguments are preserved
+	SifInitRpc(0);
+	wipeUserMem();
 
 	// Writeback data cache before loading ELF
 	FlushCache(0);
