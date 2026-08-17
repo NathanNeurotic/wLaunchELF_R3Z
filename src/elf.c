@@ -478,7 +478,7 @@ static void RunEmbeddedLoader(int argc, char **argv)
 		return;
 	}
 	/* Let's go.  */
-	fioExit();
+	fileXioExit();
 	SifInitRpc(0);
 	SifExitRpc();
 	FlushCache(0);
