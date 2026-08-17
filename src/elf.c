@@ -13,6 +13,7 @@
 
 extern u8 loader_elf[];
 extern int size_loader_elf;
+IMPORT_BIN2C(fakehost_irx);
 
 #define LAUNCH_ARG_MAX_COUNT 12
 #define LAUNCH_ARG_MAX_LINE 255
@@ -644,7 +645,7 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 //------------------------------
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)
 {
-	char *argv[ELFLOAD_MAX_ARGC], bootpath[256];
+	char *argv[ELFLOAD_MAX_ARGC], bootpath[256], hostpath[256];
 	int argc;
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
@@ -661,12 +662,25 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 #endif
 
 	if (isHddPartyPath(party) && (!strncmp(filename, "pfs0:", 5))) {
+		char fakepath[MAX_PATH], *p;
+		int ret;
+
 		if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY)) {
 			//Some error occurred, it could be due to something else having used pfs0
 			unmountParty(0);  //So we try unmounting pfs0, to try again
 			if (0 > fileXioMount("pfs0:", party, FIO_MT_RDONLY))
 				return;  //If it still fails, we have to give up...
 		}
+
+		snprintf(fakepath, sizeof(fakepath), "%s", filename);
+		p = strrchr(fakepath, '/');
+		if (p == NULL)
+			snprintf(fakepath, sizeof(fakepath), "pfs0:");
+		else {
+			p++;
+			*p = '\0';
+		}
+		SifExecModuleBuffer(fakehost_irx, size_fakehost_irx, strlen(fakepath), fakepath, &ret);
 
 		//If a path to a file on PFS is specified, change it to the standard format.
 		//hddN:partition:pfs:path/to/file
@@ -676,8 +690,19 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			snprintf(bootpath, sizeof(bootpath), "%s:%s", party, filename);
 		}
 
+		p = strrchr(filename, '/');
+		if (p == NULL)
+			p = strrchr(filename, ':');
+		if (p != NULL) {
+			p++;
+			snprintf(hostpath, sizeof(hostpath), "host:%s", p);
+		} else {
+			snprintf(hostpath, sizeof(hostpath), "host:%s", filename);
+		}
+
 		argv[0] = filename;
-		argv[1] = bootpath;
+		argv[1] = hostpath;
+		argv[2] = bootpath;
 #ifdef DVRP
 	} else if (dvr_pfs_ix >= 0 && !strncmp(filename, dvr_pfs_name, 9)) {
 		if (0 > fileXioMount(dvr_pfs_name, party, FIO_MT_RDONLY)) {
@@ -695,14 +720,16 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			snprintf(bootpath, sizeof(bootpath), "%s:%s", party, filename);
 		}
 		argv[0] = filename;
-		argv[1] = bootpath;
+		argv[1] = filename;
+		argv[2] = bootpath;
 #endif
 	} else {
 		argv[0] = filename;
 		argv[1] = filename;
+		argv[2] = filename;
 	}
 
-	argc = 2;
+	argc = 3;
 	argv[argc++] = (reboot_iop_elf_load) ? "-r" : "-nr";
 
 	if (LaunchArgsPending())
@@ -711,6 +738,7 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 
 	RunEmbeddedLoader(argc, argv);
 }
+
 
 //------------------------------
 //End of func:  void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)

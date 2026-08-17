@@ -59,7 +59,8 @@ typedef struct {
 #define ELF_PT_LOAD 1
 
 static char saved_target[MAX_LOADER_ARG_LEN];
-static char saved_path[MAX_LOADER_ARG_LEN];
+static char saved_hostpath[MAX_LOADER_ARG_LEN];
+static char saved_bootpath[MAX_LOADER_ARG_LEN];
 static char saved_extra_args[MAX_LOADER_ARGS][MAX_LOADER_ARG_LEN];
 static char *exec_argv[MAX_LOADER_ARGS];
 static int exec_argc;
@@ -164,30 +165,41 @@ int main(int argc, char *argv[])
 
 	// Copy incoming arguments safely into resident loader BSS FIRST before touching user memory!
 	saved_target[0] = '\0';
-	saved_path[0] = '\0';
+	saved_hostpath[0] = '\0';
+	saved_bootpath[0] = '\0';
 
 	if (argc > 0 && argv[0] != NULL) {
 		strncpy(saved_target, argv[0], sizeof(saved_target) - 1);
 		saved_target[sizeof(saved_target) - 1] = '\0';
 	}
 	if (argc > 1 && argv[1] != NULL) {
-		strncpy(saved_path, argv[1], sizeof(saved_path) - 1);
-		saved_path[sizeof(saved_path) - 1] = '\0';
+		strncpy(saved_hostpath, argv[1], sizeof(saved_hostpath) - 1);
+		saved_hostpath[sizeof(saved_hostpath) - 1] = '\0';
 	} else {
-		strncpy(saved_path, saved_target, sizeof(saved_path) - 1);
-		saved_path[sizeof(saved_path) - 1] = '\0';
+		strncpy(saved_hostpath, saved_target, sizeof(saved_hostpath) - 1);
+		saved_hostpath[sizeof(saved_hostpath) - 1] = '\0';
+	}
+	if (argc > 2 && argv[2] != NULL) {
+		strncpy(saved_bootpath, argv[2], sizeof(saved_bootpath) - 1);
+		saved_bootpath[sizeof(saved_bootpath) - 1] = '\0';
+	} else {
+		strncpy(saved_bootpath, saved_hostpath, sizeof(saved_bootpath) - 1);
+		saved_bootpath[sizeof(saved_bootpath) - 1] = '\0';
 	}
 
-	if (argc > 2 && argv[2] != NULL) {
-		rebootiop = (!strcmp("-r", argv[2]));
+	if (argc > 3 && argv[3] != NULL) {
+		rebootiop = (!strcmp("-r", argv[3]));
 	}
 
 	// Prepare outbound argv for child ELF:
 	exec_argc = 0;
-	exec_argv[exec_argc++] = saved_path;
+	exec_argv[exec_argc++] = saved_hostpath;
+	if (strcmp(saved_hostpath, saved_bootpath) != 0) {
+		exec_argv[exec_argc++] = saved_bootpath;
+	}
 
 	// Copy any additional sidecar arguments
-	for (i = 3; i < argc && exec_argc < MAX_LOADER_ARGS; i++) {
+	for (i = 4; i < argc && exec_argc < MAX_LOADER_ARGS; i++) {
 		if (argv[i] != NULL) {
 			strncpy(saved_extra_args[exec_argc], argv[i], MAX_LOADER_ARG_LEN - 1);
 			saved_extra_args[exec_argc][MAX_LOADER_ARG_LEN - 1] = '\0';
