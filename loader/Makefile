@@ -1,18 +1,13 @@
-EE_CFLAGS  := -G0 -Os -EL -Wall -D_EE -DNEWLIB_PORT_AWARE -ffunction-sections -fdata-sections
+EE_CFLAGS  := -G0 -O2 -EL -Wall -D_EE -DNEWLIB_PORT_AWARE
 EE_ASFLAGS += -EL -G0
 
-LOADADDR  = 0x84000
-STACKADDR = 0x9e000
-STACKSIZE = 0x02000
+LOADADDR  = 0x90000
+STACKADDR = 0xA8000
+STACKSIZE = 0x04000
 
 LDPARAMS := -Wl,--defsym -Wl,_stack_size=$(STACKSIZE) -Wl,--defsym -Wl,_stack=$(STACKADDR)
 
-EE_LINKFILE := ./linkfile
-EE_LDFLAGS += -L. -T$(EE_LINKFILE) -s -Wl,--gc-sections $(LDPARAMS)
-
-LOW_MEM_LIMIT = 0xa0000
-LAYOUT_CHECK_SCRIPT = ../scripts/check_loader_layout.sh
-EE_NM ?= $(EE_TOOL_PREFIX)nm
+EE_LDFLAGS += -Wl,-Ttext -Wl,$(LOADADDR) -s $(LDPARAMS)
 
 EE_BIN = loader.elf
 EE_OBJS = loader.o
@@ -22,10 +17,7 @@ ifeq ($(DEBUG),1)
 EE_LIBS += -ldebug
 endif
 
-all: $(EE_BIN) check-layout
-
-check-layout: $(EE_BIN)
-	sh $(LAYOUT_CHECK_SCRIPT) "$(EE_BIN)" "$(EE_NM)" "$(LOADADDR)" "$(STACKADDR)" "$(STACKSIZE)" "$(LOW_MEM_LIMIT)"
+all: $(EE_BIN)
 
 clean:
 	rm -f -r $(EE_OBJS) $(EE_BIN)

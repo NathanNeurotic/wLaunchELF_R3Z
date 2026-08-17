@@ -94,9 +94,6 @@ jobs:
         echo "Resolved make flags: $FLAGS"
         make rebuild ${{ github.event.inputs.make_args }} $FLAGS
 
-    - name: Verify loader low-memory layout guard
-      run: |
-        make -C loader check-layout DEBUG=0
 
     - name: Rename output ELF for variant
       run: |

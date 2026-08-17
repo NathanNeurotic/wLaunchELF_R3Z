@@ -22,19 +22,6 @@ static char saved_extra_args[MAX_LOADER_ARGS][MAX_LOADER_ARG_LEN];
 static char *exec_argv[MAX_LOADER_ARGS];
 static int exec_argc;
 
-void _libcglue_init(void)
-{
-}
-
-void _libcglue_deinit(void)
-{
-}
-
-void _libcglue_args_parse(int argc, char **argv)
-{
-	(void)argc;
-	(void)argv;
-}
 
 static void wipeUserMem(void)
 {
