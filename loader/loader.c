@@ -16,6 +16,14 @@
 
 #define USER_MEM_START_ADDR 0x100000
 
+#define MAX_SAVED_ARGC 16
+#define MAX_SAVED_ARG_LEN 256
+
+static char saved_elf_path[MAX_SAVED_ARG_LEN];
+static char saved_argv_data[MAX_SAVED_ARGC][MAX_SAVED_ARG_LEN];
+static char *saved_argv[MAX_SAVED_ARGC];
+static int saved_argc;
+
 void _libcglue_init(void)
 {
 }
@@ -214,6 +222,7 @@ int main(int argc, char *argv[])
 {
 	char *elf_path;
 	int reset_iop, skip_argv0;
+	int i;
 
 	if (argc < 1)
 		return -EINVAL;
@@ -226,7 +235,6 @@ int main(int argc, char *argv[])
 
 	if (argc > 0 && !strncmp(argv[argc - 1], "-la=", 4)) {
 		char *flags;
-		int i;
 
 		flags = argv[argc - 1] + 4;
 		for (i = 0; flags[i] != '\0'; i++) {
@@ -260,10 +268,27 @@ int main(int argc, char *argv[])
 		argv = &argv[1];
 	}
 
-	if (!strncmp(elf_path, "mem:", 4))
-		return loadEmbeddedPayload(elf_path, argc, argv, reset_iop);
+	if (elf_path != NULL) {
+		strncpy(saved_elf_path, elf_path, sizeof(saved_elf_path) - 1);
+		saved_elf_path[sizeof(saved_elf_path) - 1] = '\0';
+	} else {
+		saved_elf_path[0] = '\0';
+	}
 
-	return loadFilePayload(elf_path, argc, argv, reset_iop);
+	saved_argc = 0;
+	for (i = 0; i < argc && i < MAX_SAVED_ARGC; i++) {
+		if (argv[i] != NULL) {
+			strncpy(saved_argv_data[i], argv[i], sizeof(saved_argv_data[i]) - 1);
+			saved_argv_data[i][sizeof(saved_argv_data[i]) - 1] = '\0';
+			saved_argv[i] = saved_argv_data[i];
+			saved_argc++;
+		}
+	}
+
+	if (!strncmp(saved_elf_path, "mem:", 4))
+		return loadEmbeddedPayload(saved_elf_path, saved_argc, saved_argv, reset_iop);
+
+	return loadFilePayload(saved_elf_path, saved_argc, saved_argv, reset_iop);
 }
 
 //--------------------------------------------------------------
