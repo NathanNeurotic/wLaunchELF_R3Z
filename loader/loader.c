@@ -1,12 +1,11 @@
-//--------------------------------------------------------------
-// File name: loader.c
-//--------------------------------------------------------------
 #include "tamtypes.h"
 #include "debug.h"
 #include "kernel.h"
 #include "iopcontrol.h"
 #include "sifrpc.h"
 #include "loadfile.h"
+#include <fcntl.h>
+#include <unistd.h>
 #include "fileXio_rpc.h"
 #include "string.h"
 #include "iopheap.h"
@@ -164,7 +163,7 @@ static int tLoadElf(const char *filename, u32 *entry)
 	if (filename == NULL || entry == NULL)
 		return -EINVAL;
 
-	fd = fileXioOpen((char *)filename, FIO_O_RDONLY, 0666);
+	fd = fileXioOpen((char *)filename, O_RDONLY, 0666);
 	if (fd < 0)
 		return -ENOENT;
 
@@ -214,7 +213,7 @@ int main(int argc, char *argv[])
 {
 	static t_ExecData elfdata;
 	int ret, rebootiop = 0;
-	u32 entry = 0, gp = 0;
+	u32 entry = 0;
 	int i;
 
 	// Reset stack pointer into loader's local BSS (0x0009e000)

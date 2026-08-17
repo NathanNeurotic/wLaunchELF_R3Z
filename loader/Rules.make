@@ -12,7 +12,7 @@ EE_CC_VERSION := $(shell $(EE_CC) --version 2>&1 | sed -n 's/^.*(GCC) //p')
 EE_INCS := -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I. $(EE_INCS)
 
 # C compiler flags
-EE_CFLAGS := -D_EE -O2 -G0 -Wall $(EE_CFLAGS)
+EE_CFLAGS := -D_EE -DNEWLIB_PORT_AWARE -O2 -G0 -Wall $(EE_CFLAGS)
 
 # C++ compiler flags
 EE_CXXFLAGS := -D_EE -O2 -G0 -Wall $(EE_CXXFLAGS)

@@ -1,4 +1,4 @@
-EE_CFLAGS  := -G0 -Os -EL -Wall -D_EE -ffunction-sections -fdata-sections
+EE_CFLAGS  := -G0 -Os -EL -Wall -D_EE -DNEWLIB_PORT_AWARE -ffunction-sections -fdata-sections
 EE_ASFLAGS += -EL -G0
 
 LOADADDR  = 0x84000
