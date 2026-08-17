@@ -580,9 +580,7 @@ static int StageExecutablePayload(const char *open_path, char *mem_arg, size_t m
 	u32 stage_addr;
 	int payload_size;
 	int fd, total, rd;
-#ifdef XFROM
 	int encrypted_payload;
-#endif
 
 	if (open_path == NULL || mem_arg == NULL || mem_arg_size < 22)
 		return -1;
@@ -621,7 +619,6 @@ static int StageExecutablePayload(const char *open_path, char *mem_arg, size_t m
 		return -1;
 
 	launch_payload = payload;
-#ifdef XFROM
 	encrypted_payload = isLikelyEncryptedPayload(payload, payload_size);
 	if (!isElfPayload(payload, payload_size) && encrypted_payload) {
 		void *decrypted_payload;
@@ -642,13 +639,11 @@ static int StageExecutablePayload(const char *open_path, char *mem_arg, size_t m
 			return -1;
 		payload_size -= (int)(launch_payload - payload);
 	}
-#endif
 
 	snprintf(mem_arg, mem_arg_size, "mem:%08X:%08X", (u32)launch_payload, (u32)payload_size);
 	return 0;
 }
 
-#ifdef XFROM
 static int getMbrOpenPath(const char *path, char *open_path, size_t open_path_size)
 {
 	const char *pfs;

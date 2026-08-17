@@ -1372,9 +1372,9 @@ void ensureMemoryCardPortAccessible(int port)
 #endif
 }
 
+#if defined(MMCE) || defined(MX4SIO)
 static void switchStorageDriverStack(int target_mode)
 {
-#if defined(MMCE) || defined(MX4SIO)
 	if (storage_driver_stack_mode == target_mode)
 		return;
 
@@ -1382,10 +1382,8 @@ static void switchStorageDriverStack(int target_mode)
 		DPRINTF("Switching storage driver stack (%d -> %d), resetting IOP\n", storage_driver_stack_mode, target_mode);
 		resetRuntimeDeviceState(TRUE);
 	}
-#else
-	(void)target_mode;
-#endif
 }
+#endif
 
 static void switchBlockStorageStack(int target_mode)
 {
