@@ -280,12 +280,8 @@ ifeq ($(strip $(USBMASS_BD_SOURCE)),)
 $(error Missing usbmass_bd.irx. Update PS2SDK, add iop/__precompiled/usbmass_bd.irx, or provide PS2SDKSRC with iop/usb/usbmass_bd sources)
 endif
 
-ifneq ($(wildcard $(PS2SDK)/iop/irx/iomanX.irx),)
-IOMANX_SOURCE := $(PS2SDK)/iop/irx/iomanX.irx
-endif
-ifneq ($(wildcard $(PS2SDK)/iop/irx/fileXio.irx),)
-FILEXIO_SOURCE := $(PS2SDK)/iop/irx/fileXio.irx
-endif
+IOMANX_SOURCE ?= iop/__precompiled/iomanX.irx
+FILEXIO_SOURCE ?= iop/__precompiled/fileXio.irx
 
 ifneq ($(PS2SDKSRC),)
 ifneq ($(wildcard $(PS2SDKSRC)/Defs.make),)
@@ -761,12 +757,10 @@ endif
 iop/ps2ftpd.irx: iop/oldlibs/ps2ftpd
 	$(MAKE) -C $<
 
-LOCAL_PS2HDD_OSD_IRX := iop/ps2hdd_osd/ps2hdd-osd.irx
-PS2HDD_OSD_SOURCE ?= $(LOCAL_PS2HDD_OSD_IRX)
-PS2HDD_OSD_DEPS := $(wildcard iop/ps2hdd_osd/*.[ch]) iop/ps2hdd_osd/imports.lst iop/ps2hdd_osd/Makefile
+PS2HDD_OSD_SOURCE ?= $(PS2SDK)/iop/irx/ps2hdd-osd.irx
 
-$(LOCAL_PS2HDD_OSD_IRX): $(PS2HDD_OSD_DEPS)
-	$(MAKE) -C iop/ps2hdd_osd
+$(EE_ASM_DIR)ps2atad_irx.s: $(PS2SDK)/iop/irx/ps2atad.irx | $(EE_ASM_DIR)
+	$(BIN2S) $< $@ ps2atad_irx
 
 $(EE_ASM_DIR)ps2hdd_irx.s: $(PS2HDD_OSD_SOURCE) | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2hdd_irx
@@ -775,9 +769,6 @@ $(EE_ASM_DIR)ps2fs_irx.s: $(PS2SDK)/iop/irx/ps2fs.irx | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ ps2fs_irx
 	
 ifeq ($(DVRP),1)
-$(EE_ASM_DIR)ps2atad_irx.s: $(PS2SDK)/iop/irx/ps2atad.irx | $(EE_ASM_DIR)
-	$(BIN2S) $< $@ ps2atad_irx
-
 $(EE_ASM_DIR)dvrdrv_irx.s: $(DVRDRV_SOURCE) | $(EE_ASM_DIR)
 	$(BIN2S) $< $@ dvrdrv_irx
 
