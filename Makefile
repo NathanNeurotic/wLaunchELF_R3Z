@@ -1,7 +1,7 @@
 #.SILENT:
 
 # ---{ BUILD CONFIGURATION }--- #
-MMCE ?= 1
+MMCE ?= 0
 DS34 ?= 0
 TMANIP ?= 1
 ETH ?= 0
@@ -11,8 +11,8 @@ DVRP ?= 1
 IOP_RESET ?= 1
 XFROM ?= 1
 UDPTTY ?= 0
-MX4SIO ?= 1
-SIO2MAN ?= 1
+MX4SIO ?= 0
+SIO2MAN ?= 0
 PPC_UART ?= 0
 SIO_DEBUG ?= 0
 DEBUG ?= 0

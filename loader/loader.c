@@ -7,6 +7,7 @@
 #include "iopcontrol.h"
 #include "sifrpc.h"
 #include "loadfile.h"
+#include "fileXio_rpc.h"
 #include "string.h"
 #include "iopheap.h"
 #include "errno.h"
@@ -148,11 +149,83 @@ static int loadELFFromMemory(u32 elf_addr, u32 *entry)
 	return 0;
 }
 
+//--------------------------------------------------------------
+// Direct EE-side ELF loader via fileXio (from wLE_kHn/Independence)
+// Directly streams ELF segments into destination virtual addresses,
+// bypassing the IOP LOADFILE.IRX limitation on FMCB boots.
+//--------------------------------------------------------------
+static int tLoadElf(const char *filename, u32 *entry)
+{
+	u8 eh_buf[sizeof(Elf32_Ehdr)];
+	Elf32_Ehdr *eh = (Elf32_Ehdr *)eh_buf;
+	Elf32_Phdr eph;
+	int fd, size, i;
+
+	if (filename == NULL || entry == NULL)
+		return -EINVAL;
+
+	fd = fileXioOpen((char *)filename, FIO_O_RDONLY, 0666);
+	if (fd < 0)
+		return -ENOENT;
+
+	size = fileXioRead(fd, eh_buf, sizeof(Elf32_Ehdr));
+	if (size != (int)sizeof(Elf32_Ehdr)) {
+		fileXioClose(fd);
+		return -ENOEXEC;
+	}
+
+	if (memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0 ||
+	    ((eh->e_type != ET_EXEC) && (eh->e_type != ET_DYN)) ||
+	    eh->e_machine != EM_MIPS ||
+	    eh->e_entry == 0 || (eh->e_entry & 0x3) != 0) {
+		fileXioClose(fd);
+		return -ENOEXEC;
+	}
+
+	for (i = 0; i < eh->e_phnum; i++) {
+		if (fileXioLseek(fd, eh->e_phoff + (i * sizeof(Elf32_Phdr)), SEEK_SET) < 0)
+			break;
+		if (fileXioRead(fd, &eph, sizeof(Elf32_Phdr)) != (int)sizeof(Elf32_Phdr))
+			break;
+		if (eph.p_type != PT_LOAD)
+			continue;
+
+		if (fileXioLseek(fd, eph.p_offset, SEEK_SET) < 0)
+			break;
+		size = fileXioRead(fd, (void *)eph.p_vaddr, eph.p_filesz);
+		if (size != (int)eph.p_filesz)
+			break;
+
+		if (eph.p_memsz > eph.p_filesz)
+			memset((void *)(eph.p_vaddr + eph.p_filesz), 0, eph.p_memsz - eph.p_filesz);
+	}
+
+	fileXioClose(fd);
+	if (i < eh->e_phnum)
+		return -EIO;
+
+	*entry = eh->e_entry;
+	FlushCache(0);
+	FlushCache(2);
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	static t_ExecData elfdata;
 	int ret, rebootiop = 0;
+	u32 entry = 0, gp = 0;
 	int i;
+
+	// Reset stack pointer into loader's local BSS (0x0009e000)
+	__asm__ __volatile__(
+		".set  noreorder\n\t"
+		"lui   $sp, 0x0009\n\t"
+		"nop\n\t"
+		"ori   $sp, $sp, 0xe000\n\t"
+		"nop\n\t"
+		".set  reorder\n\t"
+	);
 
 	// Initialize SIF RPC
 	SifInitRpc(0);
@@ -206,7 +279,7 @@ int main(int argc, char *argv[])
 
 	// Branch 1: Embedded Memory Payload (MBR / memory boot)
 	if (!strncmp(saved_target, "mem:", 4)) {
-		u32 elf_addr = 0, elf_size = 0, entry = 0;
+		u32 elf_addr = 0, elf_size = 0;
 		if (parseMemPath(saved_target, &elf_addr, &elf_size) < 0 || elf_addr < USER_MEM_START_ADDR || elf_size == 0) {
 			SifExitRpc();
 			return -EINVAL;
@@ -228,14 +301,49 @@ int main(int argc, char *argv[])
 		SifExitRpc();
 		FlushCache(0);
 		FlushCache(2);
+		__asm__ __volatile__(
+			".set  noreorder\n\t"
+			"lui   $sp, 0x000a\n\t"
+			"nop\n\t"
+			"addiu $sp, $sp, 0x8000\n\t"
+			"nop\n\t"
+			".set  reorder\n\t"
+		);
 		ExecPS2((void *)entry, NULL, exec_argc, exec_argv);
 		return 0;
 	}
 
-	// Branch 2: Standard File Payload (from PFS / MC / USB / host / CDVD)
+	// Wipe user memory before loading from file
 	wipeUserMem();
 	FlushCache(0);
 
+	// Branch 2: PFS / VMC / fileXio device -> use direct tLoadElf (bypasses LOADFILE.IRX completely!)
+	if (!strncmp(saved_target, "pfs", 3) ||
+	    !strncmp(saved_target, "dvr_pfs", 7) ||
+	    !strncmp(saved_target, "vmc", 3)) {
+		ret = tLoadElf(saved_target, &entry);
+		if (ret == 0 && entry != 0 && (entry & 0x3) == 0) {
+			if (rebootiop) {
+				while (!SifIopReset("", 0));
+				while (!SifIopSync());
+			}
+			SifExitRpc();
+			FlushCache(0);
+			FlushCache(2);
+			__asm__ __volatile__(
+				".set  noreorder\n\t"
+				"lui   $sp, 0x000a\n\t"
+				"nop\n\t"
+				"addiu $sp, $sp, 0x8000\n\t"
+				"nop\n\t"
+				".set  reorder\n\t"
+			);
+			ExecPS2((void *)entry, NULL, exec_argc, exec_argv);
+			return 0;
+		}
+	}
+
+	// Branch 3: Standard File Payload (from MC / USB / host / CDVD / rom)
 	ret = SifLoadElf(saved_target, &elfdata);
 	if (ret != 0 || elfdata.epc == 0)
 		ret = SifLoadElfEncrypted(saved_target, &elfdata);
@@ -249,7 +357,14 @@ int main(int argc, char *argv[])
 		SifExitRpc();
 		FlushCache(0);
 		FlushCache(2);
-
+		__asm__ __volatile__(
+			".set  noreorder\n\t"
+			"lui   $sp, 0x000a\n\t"
+			"nop\n\t"
+			"addiu $sp, $sp, 0x8000\n\t"
+			"nop\n\t"
+			".set  reorder\n\t"
+		);
 		ExecPS2((void *)elfdata.epc, (void *)elfdata.gp, exec_argc, exec_argv);
 		return 0;
 	} else {

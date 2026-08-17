@@ -552,9 +552,7 @@ void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop)
 
 	RunEmbeddedLoader(MEMLOAD_ARGC, argv);
 }
-//--------------------------------------------------------------
-//End of func:  void RunLoaderMemory(const char *arg0, const char *mem_arg, int reboot_iop)
-//--------------------------------------------------------------
+#ifdef XFROM
 static int isElfPayload(const u8 *payload, int payload_size)
 {
 	const Elf32_Ehdr *eh;
@@ -757,10 +755,7 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
-			snprintf(exec_target, sizeof(exec_target), "%s", filename);
-
-		argv[0] = exec_target;
+		argv[0] = filename;
 		if (isExplicitHddHandoffPath(handoff_path))
 			argv[1] = (char *)handoff_path;
 		else
@@ -782,19 +777,14 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
-			snprintf(exec_target, sizeof(exec_target), "%s", filename);
-
-		argv[0] = exec_target;
+		argv[0] = filename;
 		if ((handoff_path != NULL) && !strncmp(handoff_path, "dvr_hdd0:/", 10))
 			argv[1] = (char *)handoff_path;
 		else
 			argv[1] = bootpath;
 #endif
 	} else if (!strncmp(filename, "vmc", 3)) {
-		if (StageExecutablePayload(filename, exec_target, sizeof(exec_target)) < 0)
-			snprintf(exec_target, sizeof(exec_target), "%s", filename);
-		argv[0] = exec_target;
+		argv[0] = filename;
 		argv[1] = (char *)((handoff_path != NULL) ? handoff_path : filename);
 	} else {
 		argv[0] = exec_target;
