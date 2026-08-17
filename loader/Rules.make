@@ -6,8 +6,6 @@
 # Licenced under Academic Free License version 2.0
 # Review ps2sdk README & LICENSE files for further details.
 
-EE_CC_VERSION := $(shell $(EE_CC) --version 2>&1 | sed -n 's/^.*(GCC) //p')
-
 # Include directories
 EE_INCS := -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I. $(EE_INCS)
 
@@ -30,19 +28,6 @@ EE_KERNEL_LIB := -lkernel
 endif
 EE_LIBS += -lc $(EE_KERNEL_LIB)
 
-# Extra macro for disabling the automatic inclusion of the built-in CRT object(s)
-ifeq ($(EE_CC_VERSION),3.2.2)
-	EE_NO_CRT = -mno-crt0
-else ifeq ($(EE_CC_VERSION),3.2.3)
-	EE_NO_CRT = -mno-crt0
-else
-	EE_NO_CRT = -nostartfiles
-	CRTBEGIN_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crtbegin.o)
-	CRTEND_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crtend.o)
-	CRTI_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crti.o)
-	CRTN_OBJ := $(shell $(EE_CC) $(CFLAGS) -print-file-name=crtn.o)
-endif
-
 %.o: %.c
 	$(EE_CC) $(EE_CFLAGS) $(EE_INCS) -c $< -o $@
 
@@ -58,12 +43,11 @@ endif
 %.o: %.s
 	$(EE_AS) $(EE_ASFLAGS) $< -o $@
 
-$(EE_BIN): $(EE_OBJS) $(PS2SDK)/ee/startup/crt0.o
-	$(EE_CC) $(EE_NO_CRT) -T$(PS2SDK)/ee/startup/linkfile $(EE_CFLAGS) \
-		-o $(EE_BIN) $(PS2SDK)/ee/startup/crt0.o $(CRTI_OBJ) $(CRTBEGIN_OBJ) $(EE_OBJS) $(CRTEND_OBJ) $(CRTN_OBJ) $(EE_LDFLAGS) $(EE_LIBS)
+$(EE_BIN): $(EE_OBJS)
+	$(EE_CC) $(EE_CFLAGS) -o $(EE_BIN) $(EE_OBJS) $(EE_LDFLAGS) $(EE_LIBS)
 
 $(EE_ERL): $(EE_OBJS)
-	$(EE_CC) $(EE_NO_CRT) -o $(EE_ERL) $(EE_OBJS) $(EE_CFLAGS) $(EE_LDFLAGS) -Wl,-r -Wl,-d
+	$(EE_CC) -o $(EE_ERL) $(EE_OBJS) $(EE_CFLAGS) $(EE_LDFLAGS) -Wl,-r -Wl,-d
 	$(EE_STRIP) --strip-unneeded -R .mdebug.eabi64 -R .reginfo -R .comment $(EE_ERL)
 
 $(EE_LIB): $(EE_OBJS)
