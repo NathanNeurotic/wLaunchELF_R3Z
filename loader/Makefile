@@ -1,17 +1,17 @@
-EE_CFLAGS  := -G0 -O2 -EL -Wall -D_EE
+EE_CFLAGS  := -G0 -Os -EL -Wall -D_EE -ffunction-sections -fdata-sections
 EE_ASFLAGS += -EL -G0
 
-# Standard LaunchELF loader placement:
-# Loader body at 0x90000, stack at 0xA8000, stack size 0x4000.
-LOADADDR  = 0x90000
-STACKADDR = 0xA8000
-STACKSIZE = 0x04000
+# Standard LaunchELF loader placement in low RAM:
+# Loader body at 0x84000, stack at 0x9e000, stack size 0x2000.
+LOADADDR  = 0x84000
+STACKADDR = 0x9e000
+STACKSIZE = 0x02000
 
 LDPARAMS := -Wl,--defsym -Wl,_stack_size=$(STACKSIZE) -Wl,--defsym -Wl,_stack=$(STACKADDR)
 
-EE_LDFLAGS += -Wl,-Ttext -Wl,$(LOADADDR) -s $(LDPARAMS)
+EE_LDFLAGS += -Wl,-Ttext -Wl,$(LOADADDR) -s -Wl,--gc-sections $(LDPARAMS)
 
-LOW_MEM_LIMIT = 0x100000
+LOW_MEM_LIMIT = 0xa0000
 LAYOUT_CHECK_SCRIPT = ../scripts/check_loader_layout.sh
 EE_NM ?= $(EE_TOOL_PREFIX)nm
 
