@@ -20,40 +20,15 @@ EE_CXXFLAGS := -D_EE -O2 -G0 -Wall $(EE_CXXFLAGS)
 # Linker flags
 EE_LDFLAGS := -L$(PS2SDK)/ee/lib $(EE_LDFLAGS)
 
-# Helpers for compact embedded binaries. This mirrors the PS2SDK rules used by
-# OSDMenu while keeping this legacy local rules file self-contained.
-EE_NEWLIB_NANO ?= 0
-EE_COMPACT_EXECUTABLE ?= 0
-
-ifneq (x$(EE_COMPACT_EXECUTABLE), x0)
-EE_CFLAGS += -fdata-sections -ffunction-sections
-EE_CXXFLAGS += -fdata-sections -ffunction-sections
-EE_LDFLAGS += -Wl,-zmax-page-size=128 -s -Wl,--gc-sections
-endif
-
 # Assembler flags
 EE_ASFLAGS := -G0 $(EE_ASFLAGS)
 
-# Linker script path changed across PS2SDK layouts.
-# Prefer installed release path, then source-tree path.
-EE_LINKFILE ?= $(PS2SDK)/ee/startup/linkfile
-ifeq ($(wildcard $(EE_LINKFILE)),)
-EE_LINKFILE := $(PS2SDK)/ee/startup/src/linkfile
-endif
-
-# Link with following libraries. Some PS2SDK builds no longer ship
-# libkernel-nopatch, so fall back to libkernel when needed.
+# Link with standard C library and kernel
 EE_KERNEL_LIB := -lkernel-nopatch
 ifeq ($(wildcard $(PS2SDK)/ee/lib/libkernel-nopatch.a),)
 EE_KERNEL_LIB := -lkernel
 endif
-ifneq (x$(EE_NEWLIB_NANO), x0)
-EE_LDFLAGS += -nodefaultlibs -lm_nano -lgcc -Wl,--start-group -lc_nano $(EE_KERNEL_LIB) -Wl,--end-group
-else
 EE_LIBS += -lc $(EE_KERNEL_LIB)
-endif
-
-# Externally defined variables: EE_BIN, EE_OBJS, EE_LIB
 
 # These macros can be used to simplify certain build rules.
 EE_C_COMPILE = $(EE_CC) $(EE_CFLAGS) $(EE_INCS)
@@ -87,9 +62,19 @@ endif
 %.o: %.s
 	$(EE_AS) $(EE_ASFLAGS) $< -o $@
 
+CRT0_OBJ := $(PS2SDK)/ee/startup/crt0.o
+ifeq ($(wildcard $(CRT0_OBJ)),)
+CRT0_OBJ := $(PS2SDK)/ee/startup/src/crt0.o
+endif
+
+STARTUP_LINKFILE := $(PS2SDK)/ee/startup/linkfile
+ifeq ($(wildcard $(STARTUP_LINKFILE)),)
+STARTUP_LINKFILE := $(PS2SDK)/ee/startup/src/linkfile
+endif
+
 $(EE_BIN): $(EE_OBJS)
-	$(EE_CC) -T$(EE_LINKFILE) $(EE_CFLAGS) \
-		-o $(EE_BIN) $(EE_OBJS) $(EE_LDFLAGS) $(EE_LIBS)
+	$(EE_CC) $(EE_NO_CRT) -T$(STARTUP_LINKFILE) $(EE_CFLAGS) \
+		-o $(EE_BIN) $(CRT0_OBJ) $(CRTI_OBJ) $(CRTBEGIN_OBJ) $(EE_OBJS) $(CRTEND_OBJ) $(CRTN_OBJ) $(EE_LDFLAGS) $(EE_LIBS)
 
 $(EE_ERL): $(EE_OBJS)
 	$(EE_CC) $(EE_NO_CRT) -o $(EE_ERL) $(EE_OBJS) $(EE_CFLAGS) $(EE_LDFLAGS) -Wl,-r -Wl,-d
