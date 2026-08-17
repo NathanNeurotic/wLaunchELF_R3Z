@@ -17,7 +17,7 @@ EE_NM ?= $(EE_TOOL_PREFIX)nm
 EE_BIN = loader.elf
 EE_OBJS = loader.o
 
-EE_LIBS = -lfileXio
+EE_LIBS =
 ifeq ($(DEBUG),1)
 EE_LIBS += -ldebug
 endif
