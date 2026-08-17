@@ -13,7 +13,8 @@
 
 extern u8 loader_elf[];
 extern int size_loader_elf;
-IMPORT_BIN2C(fakehost_irx);
+extern u8 fakehost_irx[];
+extern int size_fakehost_irx;
 
 #define LAUNCH_ARG_MAX_COUNT 12
 #define LAUNCH_ARG_MAX_LINE 255
