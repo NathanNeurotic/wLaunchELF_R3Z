@@ -7,8 +7,8 @@ STACKSIZE = 0x02000
 
 LDPARAMS := -Wl,--defsym -Wl,_stack_size=$(STACKSIZE) -Wl,--defsym -Wl,_stack=$(STACKADDR)
 
-EE_LINKFILE := linkfile
-EE_LDFLAGS += -T$(EE_LINKFILE) -s -Wl,--gc-sections $(LDPARAMS)
+EE_LINKFILE := ./linkfile
+EE_LDFLAGS += -L. -T$(EE_LINKFILE) -s -Wl,--gc-sections $(LDPARAMS)
 
 LOW_MEM_LIMIT = 0xa0000
 LAYOUT_CHECK_SCRIPT = ../scripts/check_loader_layout.sh
