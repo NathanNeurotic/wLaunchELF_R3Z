@@ -60,12 +60,10 @@ static int launchArgsSetPlainError(char *message, size_t message_size, const cha
 
 static void launchArgsMakeOpenPath(const char *path, char *file_path, size_t file_path_size)
 {
-	strncpy(file_path, path, file_path_size - 1);
-	file_path[file_path_size - 1] = '\0';
-	if (genFixPath(path, file_path) < 0) {
-		strncpy(file_path, path, file_path_size - 1);
-		file_path[file_path_size - 1] = '\0';
-	}
+	if (path == NULL || file_path == NULL || file_path_size == 0)
+		return;
+	snprintf(file_path, file_path_size, "%s", path);
+	genFixPath(path, file_path);
 }
 
 static int launchArgsCommitLine(const char *line, int line_len, char *message, size_t message_size)
@@ -334,58 +332,6 @@ static int isHddPartyPath(const char *path)
 	return (!strncmp(path, "hdd", 3) && path[3] >= '0' && path[3] <= '9' && path[4] == ':');
 }
 
-static int isHddBrowserPath(const char *path)
-{
-	return (isHddPartyPath(path) && path[5] == '/');
-}
-
-static int isExplicitHddHandoffPath(const char *path)
-{
-	return (path != NULL && (isHddBrowserPath(path) || !strncmp(path, "uLE:", 4)));
-}
-
-static const char *normalizeExecArg0Path(const char *path, char *buffer, size_t buffer_size)
-{
-	const char *partition;
-	const char *subpath;
-	const char *suffix;
-	int part_len;
-	int unit = 0;
-
-	if (path == NULL || path[0] == '\0' || buffer == NULL || buffer_size == 0)
-		return path;
-
-	if (isHddBrowserPath(path)) {
-		partition = path + 6;
-		if (partition[0] == '\0')
-			return path;
-
-		subpath = strchr(partition, '/');
-		if (subpath == NULL) {
-			snprintf(buffer, buffer_size, "hdd%c:%s:pfs:/", path[3], partition);
-		} else {
-			part_len = (int)(subpath - partition);
-			if (part_len <= 0)
-				return path;
-			snprintf(buffer, buffer_size, "hdd%c:%.*s:pfs:%s", path[3], part_len, partition, subpath);
-		}
-		return buffer;
-	}
-
-	if (!parseUsbMassPathUnit(path, "usb", 3, &unit, &suffix) &&
-	    !parseUsbMassPathUnit(path, "mass", 4, &unit, &suffix))
-		return path;
-
-	if (*suffix == '\0')
-		suffix = "/";
-
-	if (*suffix != '/')
-		snprintf(buffer, buffer_size, "mass%d:/%s", unit, suffix);
-	else
-		snprintf(buffer, buffer_size, "mass%d:%s", unit, suffix);
-
-	return buffer;
-}
 
 static int tryCheckExecPath(const char *path, int *opened_any)
 {
@@ -710,6 +656,7 @@ int PrepareMbrLaunchPayload(const char *path, char *mem_arg, size_t mem_arg_size
 void RunLoaderElf(char *filename, char *party, const char *selected_path, int exec_kind, int reboot_iop_elf_load)
 {
 	char *argv[ELFLOAD_MAX_ARGC], bootpath[256];
+	static char mem_arg[32];
 	int argc;
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
@@ -741,7 +688,10 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		argv[0] = filename;
+		if (StageExecutablePayload(filename, mem_arg, sizeof(mem_arg)) == 0)
+			argv[0] = mem_arg;
+		else
+			argv[0] = filename;
 		argv[1] = bootpath;
 #ifdef DVRP
 	} else if (dvr_pfs_ix >= 0 && !strncmp(filename, dvr_pfs_name, 9)) {
@@ -757,11 +707,17 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 			sprintf(bootpath, "%s:%s", party, filename);
 		}
 
-		argv[0] = filename;
+		if (StageExecutablePayload(filename, mem_arg, sizeof(mem_arg)) == 0)
+			argv[0] = mem_arg;
+		else
+			argv[0] = filename;
 		argv[1] = bootpath;
 #endif
 	} else {
-		argv[0] = filename;
+		if (StageExecutablePayload(filename, mem_arg, sizeof(mem_arg)) == 0)
+			argv[0] = mem_arg;
+		else
+			argv[0] = filename;
 		argv[1] = filename;
 	}
 

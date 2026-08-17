@@ -21,19 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant_name: "R3Z"
-            psx_profile: "psx"
-            pad_profile: "no-ds34"
-            storage_profile: "usb"
-          - variant_name: "R3Z-DS34"
-            psx_profile: "psx"
-            pad_profile: "ds34"
-            storage_profile: "usb"
-          - variant_name: "R3Z-MX4SIO"
+          - variant_name: "R3Z-AIO"
             psx_profile: "psx"
             pad_profile: "no-ds34"
             storage_profile: "all"
-          - variant_name: "R3Z-MX4SIO-DS34"
+          - variant_name: "R3Z-AIO-DS34"
             psx_profile: "psx"
             pad_profile: "ds34"
             storage_profile: "all"
