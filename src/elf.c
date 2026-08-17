@@ -478,6 +478,8 @@ static void RunEmbeddedLoader(int argc, char **argv)
 		return;
 	}
 	/* Let's go.  */
+	fioExit();
+	SifInitRpc(0);
 	SifExitRpc();
 	FlushCache(0);
 	FlushCache(2);

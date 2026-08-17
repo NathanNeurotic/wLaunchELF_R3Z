@@ -13,7 +13,6 @@
 #include <unistd.h>
 #include "iopheap.h"
 #include "errno.h"
-#include "fcntl.h"
 
 #ifndef SEEK_SET
 #define SEEK_SET 0
@@ -22,9 +21,15 @@
 #define SEEK_END 2
 #endif
 
+#ifndef FIO_O_RDONLY
+#define FIO_O_RDONLY 0x0001
+#endif
+#ifndef FIO_FILE_MODE
+#define FIO_FILE_MODE 0777
+#endif
+
 #define MAX_LOADER_ARGS 16
 #define MAX_LOADER_ARG_LEN 256
-#define MAX_ELF_PHDRS 32
 
 #define ELF_MAGIC 0x464C457F
 
@@ -65,9 +70,6 @@ static char saved_extra_args[MAX_LOADER_ARGS][MAX_LOADER_ARG_LEN];
 static char *exec_argv[MAX_LOADER_ARGS];
 static int exec_argc;
 
-static elf_header_t eh;
-static elf_pheader_t eph[MAX_ELF_PHDRS];
-
 static t_ExecData elfdata;
 
 static void wipeUserMem(void)
@@ -85,11 +87,14 @@ static void wipeUserMem(void)
 
 static int tLoadElf(const char *filename)
 {
-	int fd, size, i, ph_count;
+	u8 *boot_elf = (u8 *)0x01800000;
+	elf_header_t *eh = (elf_header_t *)boot_elf;
+	elf_pheader_t *eph;
+	int fd, size, i;
 
 	fileXioInit();
 
-	fd = fileXioOpen(filename, O_RDONLY, 0666);
+	fd = fileXioOpen(filename, FIO_O_RDONLY, FIO_FILE_MODE);
 	if (fd < 0)
 		return -1;
 
@@ -100,25 +105,25 @@ static int tLoadElf(const char *filename)
 	}
 
 	fileXioLseek(fd, 0, SEEK_SET);
-	if (fileXioRead(fd, &eh, sizeof(elf_header_t)) != sizeof(elf_header_t)) {
+	if (fileXioRead(fd, boot_elf, sizeof(elf_header_t)) != sizeof(elf_header_t)) {
 		fileXioClose(fd);
 		return -1;
 	}
 
-	if (*(u32 *)&eh.ident != ELF_MAGIC) {
+	if (*(u32 *)&eh->ident != ELF_MAGIC) {
 		fileXioClose(fd);
 		return -1;
 	}
 
-	ph_count = (eh.phnum > MAX_ELF_PHDRS) ? MAX_ELF_PHDRS : eh.phnum;
-	fileXioLseek(fd, eh.phoff, SEEK_SET);
-	size = ph_count * eh.phentsize;
+	fileXioLseek(fd, eh->phoff, SEEK_SET);
+	eph = (elf_pheader_t *)(boot_elf + sizeof(elf_header_t));
+	size = eh->phnum * eh->phentsize;
 	if (fileXioRead(fd, eph, size) != size) {
 		fileXioClose(fd);
 		return -1;
 	}
 
-	for (i = 0; i < ph_count; i++) {
+	for (i = 0; i < eh->phnum; i++) {
 		if (eph[i].type != ELF_PT_LOAD)
 			continue;
 
@@ -133,7 +138,7 @@ static int tLoadElf(const char *filename)
 
 	fileXioClose(fd);
 
-	elfdata.epc = eh.entry;
+	elfdata.epc = eh->entry;
 	elfdata.gp = 0;
 	return 0;
 }
@@ -225,8 +230,18 @@ int main(int argc, char *argv[])
 		}
 
 		SifExitRpc();
-		FlushCache(0);
-		FlushCache(2);
+		__asm__ __volatile__(
+			".set  noreorder\n\t"
+			"jal     FlushCache\n\t"
+			"li      $a0, 0\n\t"
+			"jal     FlushCache\n\t"
+			"li      $a0, 2\n\t"
+			"lui     $sp, 0x000a\n\t"
+			"nop\n\t"
+			"addiu   $sp, $sp, 0x8000\n\t"
+			"nop\n\t"
+			".set  reorder\n\t"
+		);
 
 		ExecPS2((void *)elfdata.epc, (void *)elfdata.gp, exec_argc, exec_argv);
 		return 0;
