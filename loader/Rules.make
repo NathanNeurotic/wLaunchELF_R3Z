@@ -1,11 +1,3 @@
-# _____     ___ ____     ___ ____
-#  ____|   |    ____|   |        | |____|
-# |     ___|   |____ ___|    ____| |    \    PS2DEV Open Source Project.
-#-----------------------------------------------------------------------
-# Copyright 2001-2004, ps2dev - http://www.ps2dev.org
-# Licenced under Academic Free License version 2.0
-# Review ps2sdk README & LICENSE files for further details.
-
 # Include directories
 EE_INCS := -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I. $(EE_INCS)
 
@@ -21,12 +13,12 @@ EE_LDFLAGS := -L$(PS2SDK)/ee/lib $(EE_LDFLAGS)
 # Assembler flags
 EE_ASFLAGS := -G0 $(EE_ASFLAGS)
 
-# Link with standard libraries
+# Link with standard libraries and fileXio
 EE_KERNEL_LIB := -lkernel-nopatch
 ifeq ($(wildcard $(PS2SDK)/ee/lib/libkernel-nopatch.a),)
 EE_KERNEL_LIB := -lkernel
 endif
-EE_LIBS += -lc $(EE_KERNEL_LIB)
+EE_LIBS += -lfileXio -lpatches -lc $(EE_KERNEL_LIB)
 
 %.o: %.c
 	$(EE_CC) $(EE_CFLAGS) $(EE_INCS) -c $< -o $@

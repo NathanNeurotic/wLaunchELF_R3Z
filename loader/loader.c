@@ -7,18 +7,54 @@
 #include "iopcontrol.h"
 #include "sifrpc.h"
 #include "loadfile.h"
+#include "fileXio_rpc.h"
 #include "string.h"
 #include "iopheap.h"
 #include "errno.h"
+#include "fcntl.h"
 
 #define MAX_LOADER_ARGS 16
 #define MAX_LOADER_ARG_LEN 256
+
+#define ELF_MAGIC 0x464C457F
+
+typedef struct {
+	u8 ident[16];
+	u16 type;
+	u16 machine;
+	u32 version;
+	u32 entry;
+	u32 phoff;
+	u32 shoff;
+	u32 flags;
+	u16 ehsize;
+	u16 phentsize;
+	u16 phnum;
+	u16 shentsize;
+	u16 shnum;
+	u16 shstrndx;
+} elf_header_t;
+
+typedef struct {
+	u32 type;
+	u32 offset;
+	void *vaddr;
+	u32 paddr;
+	u32 filesz;
+	u32 memsz;
+	u32 flags;
+	u32 align;
+} elf_pheader_t;
+
+#define ELF_PT_LOAD 1
 
 static char saved_target[MAX_LOADER_ARG_LEN];
 static char saved_path[MAX_LOADER_ARG_LEN];
 static char saved_extra_args[MAX_LOADER_ARGS][MAX_LOADER_ARG_LEN];
 static char *exec_argv[MAX_LOADER_ARGS];
 static int exec_argc;
+
+static t_ExecData elfdata;
 
 static void wipeUserMem(void)
 {
@@ -33,9 +69,86 @@ static void wipeUserMem(void)
 	}
 }
 
+static int tLoadElf(const char *filename)
+{
+	u8 *boot_elf = (u8 *)0x01800000;
+	elf_header_t *eh = (elf_header_t *)boot_elf;
+	elf_pheader_t *eph;
+	int fd, size, i;
+
+	fileXioInit();
+
+	fd = fileXioOpen(filename, O_RDONLY, 0666);
+	if (fd < 0)
+		return -1;
+
+	size = fileXioLseek(fd, 0, SEEK_END);
+	if (size <= 0) {
+		fileXioClose(fd);
+		return -1;
+	}
+
+	fileXioLseek(fd, 0, SEEK_SET);
+	if (fileXioRead(fd, boot_elf, sizeof(elf_header_t)) != sizeof(elf_header_t)) {
+		fileXioClose(fd);
+		return -1;
+	}
+
+	if (*(u32 *)&eh->ident != ELF_MAGIC) {
+		fileXioClose(fd);
+		return -1;
+	}
+
+	fileXioLseek(fd, eh->phoff, SEEK_SET);
+	eph = (elf_pheader_t *)(boot_elf + sizeof(elf_header_t));
+	size = eh->phnum * eh->phentsize;
+	if (fileXioRead(fd, eph, size) != size) {
+		fileXioClose(fd);
+		return -1;
+	}
+
+	for (i = 0; i < eh->phnum; i++) {
+		if (eph[i].type != ELF_PT_LOAD)
+			continue;
+
+		fileXioLseek(fd, eph[i].offset, SEEK_SET);
+		size = eph[i].filesz;
+		if (size > 0)
+			fileXioRead(fd, eph[i].vaddr, size);
+
+		if (eph[i].memsz > eph[i].filesz)
+			memset((u8 *)eph[i].vaddr + eph[i].filesz, 0, eph[i].memsz - eph[i].filesz);
+	}
+
+	fileXioClose(fd);
+
+	elfdata.epc = eh->entry;
+	elfdata.gp = 0;
+	return 0;
+}
+
+static int loadTargetElf(const char *path)
+{
+	int ret = -1;
+
+	if (!strncmp(path, "pfs0", 4) || !strncmp(path, "dvr_pfs0", 8) ||
+	    !strncmp(path, "vmc", 3) || !strncmp(path, "mass", 4)) {
+		ret = tLoadElf(path);
+	}
+
+	if (ret != 0) {
+		SifLoadFileInit();
+		ret = SifLoadElf(path, &elfdata);
+		if (ret != 0 || elfdata.epc == 0)
+			ret = SifLoadElfEncrypted(path, &elfdata);
+		SifLoadFileExit();
+	}
+
+	return ret;
+}
+
 int main(int argc, char *argv[])
 {
-	static t_ExecData elfdata;
 	int ret, rebootiop = 0;
 	int i;
 
@@ -87,11 +200,7 @@ int main(int argc, char *argv[])
 	FlushCache(0);
 
 	memset(&elfdata, 0, sizeof(elfdata));
-	SifLoadFileInit();
-	ret = SifLoadElf(saved_target, &elfdata);
-	if (ret != 0 || elfdata.epc == 0)
-		ret = SifLoadElfEncrypted(saved_target, &elfdata);
-	SifLoadFileExit();
+	ret = loadTargetElf(saved_target);
 
 	if (ret == 0 && elfdata.epc != 0 && (elfdata.epc & 0x3) == 0) {
 		if (rebootiop) {
