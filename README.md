@@ -24,6 +24,7 @@ Drivers load on demand for maximum compatibility and initial boot speed.
 
 ## Features:
 - LoadBOOTer MC Exploit installer, supports Retail PS2/PSX and DEX(DTL-HXXXXX)
+- [Bind any ELF to memory card](#Bind-ELF-to-Memory-Card-as-exploit-update), just provide PS2KEYS.dat (kelftool no longer needed on pc)
 - RetroGem Game ID for [PIXEL FX RetroGem](https://www.pixelfx.co/hdmi-retro-gem)
 - Launch PS1 VCDs with option for custom POPStarter path, falls back to defaults.
 - Writes to history file for disc launches for mmce vmc change
@@ -47,13 +48,12 @@ Drivers load on demand for maximum compatibility and initial boot speed.
 - [APA Header injection](#HDD-APA-header-injection) from usb, mmce and udpfs. Thanks to Alex Parrado and @israpps
 - warnings when modifying/deleting exploit folders on PS2/PSX
 - Support for PS3/PS4 Dualshocks thanks to Alex Parrado (DS34 build)
+- organize osdsys/hddosdsys homebrew by altering timestamps on root of memcard and `hdd0:__common:pfs:/*` Sort order: Manual, A-Z, Z-A, SAS Timestamps (should ignore game saves)
 
 
 ### LaunchELF with Args
 
 <details>
-
-<summary>LaunchELF with Args</summary>
 
 In FileBrowser, select a TextEditor-supported file, press `R1`, then choose `LaunchELF with Args`.
 wLaunchELF parses the file immediately, caches the args in memory, and leaves you in FileBrowser to select the target `ELF`.
@@ -82,8 +82,6 @@ The target receives the normal selected/handoff path as `argv[0]`, followed by t
 ### HDD APA header injection
 
 <details>
-
-<summary>HDD APA header injection</summary>
 
 The HDD Manager R1 menu includes `Inject Header` for PFS partitions.
 Source devices are `usb:`, `mmce0:`, `mmce1:`, and `udpfs:`.
@@ -149,11 +147,10 @@ content_subtype = 0
 
 </details>
 
-### Custom ELF signing
+
+### Bind ELF to Memory Card as exploit update
 
 <details>
-
-<summary>Sign a custom ELF with MC Exploit Installer</summary>
 
 In `MISC` -> `MC Exploit Installer`, choose a supported installation mode and then choose `Choose other ELF`.
 Select a native `ELF` file. Its accompanying `PS2KEYS.dat` must be in the same source folder, for example:
