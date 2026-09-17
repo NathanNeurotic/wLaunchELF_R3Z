@@ -49,7 +49,8 @@ ifneq ($(wildcard $(PS2SDK)/ee/lib/libmf.a),)
 EE_MATH_LIB := -lmf
 endif
 
-EE_LIBS = -lgskit -ldmakit -lmc -lhdd -lkbd $(EE_MATH_LIB) \
+# Newer PS2SDK libpatches can have backward intra-archive references.
+EE_LIBS = -Wl,--start-group -lgskit -ldmakit -lmc -lhdd -lkbd $(EE_MATH_LIB) \
 			-lcdvd -lc -lfileXio -lpatches -lpoweroff -ldebug
 EE_CFLAGS := -mgpopt -G10240 -G0 -DNEWLIB_PORT_AWARE -D_EE
 
@@ -225,6 +226,8 @@ ifeq ($(IOPTRAP),1)
     EE_OBJS += ioptrap_irx.o
     EE_CFLAGS += -DIOPTRAP
 endif
+
+EE_LIBS += -Wl,--end-group
 
 
 EE_OBJS_DIR = obj/
