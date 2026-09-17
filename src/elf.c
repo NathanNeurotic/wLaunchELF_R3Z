@@ -58,13 +58,29 @@ static int launchArgsSetPlainError(char *message, size_t message_size, const cha
 	return -1;
 }
 
+static void launchArgsCopyPath(char *dst, size_t dst_size, const char *src)
+{
+	size_t copy_len;
+
+	if (dst == NULL || dst_size == 0)
+		return;
+	if (src == NULL) {
+		dst[0] = '\0';
+		return;
+	}
+
+	copy_len = strlen(src);
+	if (copy_len >= dst_size)
+		copy_len = dst_size - 1;
+	memcpy(dst, src, copy_len);
+	dst[copy_len] = '\0';
+}
+
 static void launchArgsMakeOpenPath(const char *path, char *file_path, size_t file_path_size)
 {
-	strncpy(file_path, path, file_path_size - 1);
-	file_path[file_path_size - 1] = '\0';
+	launchArgsCopyPath(file_path, file_path_size, path);
 	if (genFixPath(path, file_path) < 0) {
-		strncpy(file_path, path, file_path_size - 1);
-		file_path[file_path_size - 1] = '\0';
+		launchArgsCopyPath(file_path, file_path_size, path);
 	}
 }
 
@@ -331,7 +347,7 @@ static int parseUsbMassPathUnit(const char *path, const char *prefix, int prefix
 
 static int isHddPartyPath(const char *path)
 {
-	return (!strncmp(path, "hdd", 3) && path[3] >= '0' && path[3] <= '9' && path[4] == ':');
+	return (path != NULL && !strncmp(path, "hdd", 3) && path[3] >= '0' && path[3] <= '9' && path[4] == ':');
 }
 
 static int isHddBrowserPath(const char *path)
@@ -701,9 +717,10 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 	char *argv[ELFLOAD_MAX_ARGC], bootpath[256];
 	static char exec_target[MAX_PATH];
 	static char exec_arg0[MAX_PATH];
-	static char loader_arg[8];
+	static char loader_arg[12];
 	const char *handoff_path = NULL;
 	int argc;
+	int cleanup_hdd_launch;
 #ifdef DVRP
 	int dvr_pfs_ix = -1;
 	char dvr_pfs_name[10] = "dvr_pfs0:";
@@ -712,6 +729,7 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 	if (selected_path != NULL && selected_path[0] != '\0')
 		handoff_path = normalizeExecArg0Path(selected_path, exec_arg0, sizeof(exec_arg0));
 	snprintf(exec_target, sizeof(exec_target), "%s", filename);
+	cleanup_hdd_launch = isHddPartyPath(party);
 	if (exec_kind == 1 && handoff_path != NULL && !strncmp(handoff_path, "mass", 4))
 		snprintf(exec_target, sizeof(exec_target), "%s", handoff_path);
 	DPRINTF("RunLoaderElf: exec_kind=%d reboot_iop=%d target='%s' handoff='%s' party='%s'\n",
@@ -777,7 +795,9 @@ void RunLoaderElf(char *filename, char *party, const char *selected_path, int ex
 	argc = ELFLOAD_BASE_ARGC - 1;
 	if (LaunchArgsPending())
 		argc += LaunchArgsCopyToArgv(&argv[argc], ELFLOAD_MAX_ARGC - ELFLOAD_BASE_ARGC);
-	snprintf(loader_arg, sizeof(loader_arg), "%s", (reboot_iop_elf_load) ? "-la=AR" : "-la=A");
+	snprintf(loader_arg, sizeof(loader_arg), "-la=A%s%s",
+	         reboot_iop_elf_load ? "R" : "",
+	         cleanup_hdd_launch ? "H" : "");
 	argv[argc++] = loader_arg;
 	LaunchArgsClear();
 	DPRINTF("RunLoaderElf: loader mode arg='%s' argc=%d\n", loader_arg, argc);
