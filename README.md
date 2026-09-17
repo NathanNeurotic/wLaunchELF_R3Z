@@ -48,7 +48,8 @@ Drivers load on demand for maximum compatibility and initial boot speed.
 - [APA Header injection](#HDD-APA-header-injection) from usb, mmce and udpfs. Thanks to Alex Parrado and @israpps
 - warnings when modifying/deleting exploit folders on PS2/PSX
 - Support for PS3/PS4 Dualshocks thanks to Alex Parrado (DS34 build)
-- organize osdsys/hddosdsys homebrew by altering timestamps on root of memcard and `hdd0:__common:pfs:/*` Sort order: Manual, A-Z, Z-A, SAS Timestamps (should ignore game saves)
+- Organize OSDSYS/HOSDSYS MC/HDD browser by altering timestamps on root of memcard and `hdd0:__common:pfs:/*`
+  - Sort order: Manual, A-Z, Z-A, SAS Timestamps (should ignore game saves)
 
 
 ### LaunchELF with Args
